@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+build/
+DerivedData/
+xcuserdata/
+*.xcresult
+# Generated from project.yml by `just generate`.
+MoonSwift.xcodeproj/

@@ -1,0 +1,17 @@
+included:
+  - MoonSwift
+  - Packages/MoonKit/Sources/MoonKit
+  - Packages/MoonKit/Sources/MoonUI
+  - Packages/MoonKit/Sources/MoonLive
+  - iOSTests
+  - Packages/MoonKit/Sources/moon
+  - Packages/MoonKit/Tests
+disabled_rules:
+  - identifier_name
+  - function_body_length
+  - type_body_length
+  - file_length
+  - cyclomatic_complexity
+  - trailing_comma
+  - optional_data_string_conversion
+line_length: 140

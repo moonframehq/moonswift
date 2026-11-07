@@ -1,0 +1,139 @@
+# The Xcode project is generated from this file: `just generate`.
+name: MoonSwift
+options:
+  bundleIdPrefix: dev.moonswift
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  configs:
+    Release:
+      DEAD_CODE_STRIPPING: true
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: true
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Signs to run locally; no developer account needed for the POC.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  MoonKit:
+    path: Packages/MoonKit
+
+targetTemplates:
+  # Bundled Luau, and the same entry point everywhere.
+  App:
+    type: application
+    sources:
+      - path: MoonSwift
+      - path: app
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+  iOSApp:
+    templates: [App]
+    platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+
+targets:
+  # The Mac app: malleable, distributed outside the App Store.
+  MoonSwift:
+    templates: [App]
+    platform: macOS
+    dependencies:
+      - package: MoonKit
+        product: MoonKit
+      - package: MoonKit
+        product: MoonUI
+      - package: MoonKit
+        product: MoonLive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.moonswift.app
+        INFOPLIST_KEY_CFBundleDisplayName: MoonSwift
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MOON_LIVE
+
+  # For the App Store. Must never link MoonLive: see `just store-audit`.
+  MoonSwiftStore:
+    templates: [iOSApp]
+    dependencies:
+      - package: MoonKit
+        product: MoonKit
+      - package: MoonKit
+        product: MoonUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.moonswift.ios
+        INFOPLIST_KEY_CFBundleDisplayName: MoonSwift
+
+  # For internal TestFlight only. Its own bundle ID, so that a live-editing
+  # build can't be promoted to the App Store by mistake.
+  MoonSwiftBeta:
+    templates: [iOSApp]
+    dependencies:
+      - package: MoonKit
+        product: MoonKit
+      - package: MoonKit
+        product: MoonUI
+      - package: MoonKit
+        product: MoonLive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.moonswift.ios.beta
+        INFOPLIST_KEY_CFBundleDisplayName: MoonSwift Beta
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MOON_LIVE
+
+  # Real taps in the simulator, which needs no Automation Mode.
+  MoonSwiftBetaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: iOSTests
+    dependencies:
+      - target: MoonSwiftBeta
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.moonswift.ios.beta.uitests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: MoonSwiftBeta
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
+schemes:
+  MoonSwift:
+    build:
+      targets:
+        MoonSwift: all
+    run:
+      config: Debug
+      environmentVariables:
+        MOONSWIFT_APP: $(SRCROOT)/app
+  MoonSwiftStore:
+    build:
+      targets:
+        MoonSwiftStore: all
+  MoonSwiftBeta:
+    build:
+      targets:
+        MoonSwiftBeta: all
+    test:
+      config: Debug
+      targets:
+        - MoonSwiftBetaUITests
