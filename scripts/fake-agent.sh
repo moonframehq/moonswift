@@ -4,6 +4,14 @@
 # which proves that errors go back to the agent, in the same conversation.
 set -euo pipefail
 cat > /dev/null
+
+# The limits are what keep an edit from becoming code execution: losing one
+# fails the smoke test.
+for needed in --restricted --strict-mcp-config dontAsk 'Edit(**/*.luau)' 'Write(**/*.luau)'; do
+    [[ " $* " == *" $needed "* ]] || { echo "launched without $needed" >&2; exit 1; }
+done
+[[ " $* " != *" acceptEdits "* ]] || { echo "launched with acceptEdits" >&2; exit 1; }
+
 file="mods/counter/main.luau"
 emit() { printf '%s\n' "$1"; }
 

@@ -48,10 +48,14 @@ it, and holds that file's source: **what you type there applies live**. The pick
 is also saved to `~/.cache/moonswift/selection.md`, for an agent to act on.
 
 On the Mac, the card also asks an agent: pick an element, say what should change,
-and watch the window follow. It runs `claude -p` with file tools only, no shell or
-web, in the app's own folder, and carries the conversation across requests. If an
-edit breaks the app, the error goes back to the agent once. iOS can't start
-processes, so this is Mac only.
+and watch the window follow. It runs `claude -p` and carries the conversation
+across requests. If an edit breaks the app, the error goes back to the agent once.
+iOS can't start processes, so this is Mac only.
+
+Text in the app can steer an agent, so its limits are set at launch, not in the
+prompt: `--restricted` confines it to the app's folder with no command tools, and
+an allowlist lets it change `.luau` files and nothing else. Without that, writing
+`.claude/settings.json` would become code execution on the next run.
 
 The sparkle belongs to the host, not to Luau, so no script can break it.
 
