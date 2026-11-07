@@ -59,8 +59,10 @@ struct CodeEditor: NSViewRepresentable {
         manager.addTemporaryAttribute(
             .backgroundColor, value: NSColor.controlAccentColor.withAlphaComponent(0.22), forCharacterRange: target
         )
-        // Once the new text has been laid out, or there's nowhere to scroll to.
+        // Once the panel has finished opening and the text is laid out: until
+        // then the editor isn't its final size, and the scroll wouldn't hold.
         Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(260))
             manager.ensureLayout(for: container)
             view.scrollRangeToVisible(target)
         }
@@ -123,7 +125,10 @@ struct CodeEditor: UIViewRepresentable {
         guard let line, line > 0 else { return }
         let target = range(ofLine: line, in: storage.string as NSString)
         storage.addAttribute(.backgroundColor, value: UIColor.tintColor.withAlphaComponent(0.22), range: target)
-        Task { @MainActor in view.scrollRangeToVisible(target) }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(260))
+            view.scrollRangeToVisible(target)
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {

@@ -66,6 +66,12 @@ public struct LiveWindow: View {
 /// The sparkle: click, then click anything in the window.
 struct Sparkle: View {
     @Environment(Inspection.self) private var inspection
+    #if os(macOS)
+    @Environment(AgentSession.self) private var agent
+    private var working: Bool { agent.running }
+    #else
+    private let working = false
+    #endif
 
     var body: some View {
         Button {
@@ -73,7 +79,7 @@ struct Sparkle: View {
         } label: {
             Label("Inspect", systemImage: "sparkles")
                 .foregroundStyle(inspection.picking ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .symbolEffect(.pulse, isActive: inspection.picking)
+                .symbolEffect(.pulse, isActive: inspection.picking || working)
         }
         .help("Point at anything to see what drew it and change it (⇧⌘X)")
         .accessibilityIdentifier("moon.sparkle")

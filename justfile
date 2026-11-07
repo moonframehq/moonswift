@@ -29,15 +29,22 @@ check dir="app":
 test:
     swift test --quiet --package-path Packages/MoonKit
 
-# The real app driving itself: clicks, live edits, the sparkle. Leaves pictures
-# of the window in build/snapshots.
+# The real app driving itself: clicks, live edits, the sparkle, and a scripted
+# agent that breaks the app first. Leaves pictures in build/snapshots.
 smoke: build
+    just _drive --env MOONSWIFT_AGENT="$PWD/scripts/fake-agent.sh"
+
+# The same with the real agent, which spends real tokens.
+smoke-agent: build
+    just _drive
+
+_drive *extra:
     rm -rf build/smoke-app build/snapshots
     cp -R app build/smoke-app
     mkdir -p build/snapshots
     # Through LaunchServices, as only that gives the app focus.
     open -n -W --stdout build/snapshots/result.txt --stderr build/snapshots/errors.txt \
-        --env MOONSWIFT_APP="$PWD/build/smoke-app" --env MOONSWIFT_SELFDRIVE="$PWD/build/snapshots" "{{app}}"
+        --env MOONSWIFT_APP="$PWD/build/smoke-app" --env MOONSWIFT_SELFDRIVE="$PWD/build/snapshots" {{extra}} "{{app}}"
     cat build/snapshots/result.txt
     grep -q '^all .* passed$' build/snapshots/result.txt
 

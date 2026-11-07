@@ -1,0 +1,202 @@
+#if os(macOS)
+import Foundation
+import MoonKit
+import Observation
+
+/// A coding agent changing the running app. It edits the app's Luau and the
+/// window follows, through the same reload as any other save. It only gets
+/// file tools, in the app's own folder: no shell, no web. iOS can't start
+/// processes, so this is Mac only.
+@Observable
+public final class AgentSession {
+    public struct Entry: Identifiable, Equatable {
+        public enum Kind: Equatable { case you, tool, answer, problem }
+
+        public let id: Int
+        public let kind: Kind
+        public let text: String
+    }
+
+    /// Times a broken edit goes back to the agent before it's left to you.
+    private static let repairs = 1
+    private static let tools = "Read,Edit,Write,Glob,Grep"
+
+    public private(set) var entries: [Entry] = []
+    public private(set) var running = false
+
+    @ObservationIgnored private var session: String?
+    @ObservationIgnored private var process: Process?
+    @ObservationIgnored private var stopped = false
+
+    public init() {}
+
+    /// Sends `request` to the agent, about what `report` describes. Later
+    /// requests carry on the same conversation.
+    public func ask(_ request: String, about report: String, in workspace: Workspace) {
+        guard !running else { return }
+        running = true
+        stopped = false
+        add(.you, request)
+        Task {
+            await run(prompt: "\(request)\n\nThe element I picked in the running app:\n\(report)", in: workspace, repairs: Self.repairs)
+            running = false
+        }
+    }
+
+    public func stop() {
+        stopped = true
+        process?.terminate()
+    }
+
+    private func add(_ kind: Entry.Kind, _ text: String) {
+        entries.append(Entry(id: entries.count, kind: kind, text: text))
+    }
+
+    private func run(prompt: String, in workspace: Workspace, repairs: Int) async {
+        do {
+            let folder = try prepareFolder(of: workspace)
+            try await launch(prompt: prompt, in: folder)
+        } catch {
+            add(.problem, error.localizedDescription)
+            return
+        }
+        guard !stopped else { return }
+        workspace.reload()
+        guard let problem = workspace.problems.values.first else { return }
+        guard repairs > 0 else {
+            add(.problem, "\(problem.message)\nThe window keeps the last good version.")
+            return
+        }
+        add(.problem, "\(problem.message)\nAsking the agent to fix it.")
+        await run(
+            prompt: "Your change broke the app, which reports:\n\(problem.message)\nPlease fix it.",
+            in: workspace, repairs: repairs - 1
+        )
+    }
+
+    /// Where the agent works. An app with a user folder keeps its bundle
+    /// signed and untouched, so what's missing there is copied over first
+    /// for the agent to read and change. Those copies then win over the
+    /// bundle's, which a real product would want to narrow down.
+    private func prepareFolder(of workspace: Workspace) throws -> URL {
+        let folders = workspace.folders
+        guard let user = folders.user else { return folders.builtin }
+        let manager = FileManager.default
+        let files = manager.enumerator(at: folders.builtin, includingPropertiesForKeys: nil)
+        while let file = files?.nextObject() as? URL {
+            let relative = file.path.replacingOccurrences(of: folders.builtin.path + "/", with: "")
+            let target = user.appending(path: relative)
+            guard !manager.fileExists(atPath: target.path) else { continue }
+            try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var isFolder: ObjCBool = false
+            manager.fileExists(atPath: file.path, isDirectory: &isFolder)
+            if !isFolder.boolValue { try manager.copyItem(at: file, to: target) }
+        }
+        return user
+    }
+
+    private func launch(prompt: String, in folder: URL) async throws {
+        let process = Process()
+        var arguments = [
+            "-p", "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "acceptEdits", "--tools", Self.tools,
+            "--append-system-prompt", agentGuide,
+        ]
+        if let session { arguments += ["--resume", session] }
+
+        // `MOONSWIFT_AGENT` swaps the agent, as `just smoke` does for a script.
+        var environment = ProcessInfo.processInfo.environment
+        if let agent = environment["MOONSWIFT_AGENT"] {
+            process.executableURL = URL(filePath: agent)
+            process.arguments = arguments
+        } else {
+            // An app opened from Finder has no PATH: ask a login shell.
+            process.executableURL = URL(filePath: environment["SHELL"] ?? "/bin/zsh")
+            process.arguments = ["-lic", #"exec claude "$@""#, "claude"] + arguments
+        }
+        environment["CLAUDECODE"] = nil
+        process.environment = environment
+        process.currentDirectoryURL = folder
+
+        let output = Pipe()
+        let input = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        process.standardInput = input
+        self.process = process
+        defer { self.process = nil }
+        try process.run()
+
+        // Through stdin, so no prompt can be taken for an option.
+        try input.fileHandleForWriting.write(contentsOf: Data(prompt.utf8))
+        try input.fileHandleForWriting.close()
+
+        var noise: [String] = []
+        var finished = false
+        for try await line in output.fileHandleForReading.bytes.lines {
+            let events = AgentEvent.parse(line)
+            if events.isEmpty, !line.hasPrefix("{") { noise = Array((noise + [line]).suffix(3)) }
+            for event in events {
+                if case .finished = event { finished = true }
+                apply(event)
+            }
+        }
+        process.waitUntilExit()
+        if !finished, !stopped {
+            let detail = noise.isEmpty ? "" : ": \(noise.joined(separator: " "))"
+            throw LuauError("the agent stopped without finishing\(detail)")
+        }
+    }
+
+    private func apply(_ event: AgentEvent) {
+        switch event {
+        case .session(let id):
+            session = id
+        case .said(let text):
+            add(.answer, text)
+        case .tool(let name, let file):
+            add(.tool, [name, file.map { URL(filePath: $0).lastPathComponent }].compactMap(\.self).joined(separator: " "))
+        case .finished(let failed, let message):
+            if failed { add(.problem, message ?? "the agent failed") }
+        }
+    }
+}
+
+extension LuauError: LocalizedError {
+    public var errorDescription: String? { message }
+}
+
+/// What the agent needs to know, as Moonframe's skill tells its agents.
+private let agentGuide = #"""
+You are changing a running app. Its window is written in Luau, in this folder,
+and it reloads the moment you save, keeping each mod's state. Change only .luau
+files here, and make the smallest change that does what was asked.
+
+Layout:
+  main.luau              the shell: lays out the window
+  style.luau             `return style { colors = {...}, rules = {...} }`
+  mods/<name>/main.luau  `return mod { init, update, view, region?, order?, subscribe? }`
+  components/<name>.luau returns a function of props; `local x = use "name"`
+
+A mod: `init(previous)` returns the state, and must keep what `previous` holds.
+`update(state, msg)` changes it, and may return `state, { { to = "mod", msg = ... } }`;
+`to = "topic:name"` reaches every mod with that name in `subscribe`.
+`view(state, app)` returns a tree. `app.window.width`, `.height`, `app.appearance`.
+
+Elements: ui.row, column, panel, text, badge, icon (an SF Symbol name), button,
+input, toggle, slider, spacer, divider, region, mount. The first list item of
+ui.text, badge, icon, button, region and mount is its text or name.
+Any element takes: msg, to, class, style, id, key, tooltip, width, height,
+grow (true, "x" or "y"), gap ("none", "small", "large" or a number), align,
+padding, margin, background, color, radius, size, weight, opacity, shadow, border.
+panel takes title; column and panel take scroll = true; text takes numeric = true;
+button takes icon and variant ("primary", "plain"); input takes value, placeholder,
+change, submit; toggle takes value, label, change; slider takes value, min, max,
+step, change. change and submit arrive as { msg = change, value = ... }.
+
+Luau is sandboxed: no files, network, os, print or require, and globals can't be
+assigned, so use `local`. Prefer a rule in style.luau over repeating styles.
+You can't run anything: the app tells you if your change broke it.
+When done, say what you changed in one or two sentences.
+"""#
+#endif

@@ -363,3 +363,19 @@ struct BundledAppTests {
         #expect(workspace.trees["status"]?.children[0].text == "tasks")
     }
 }
+
+@Suite("Agent events")
+struct AgentEventTests {
+    @Test func theLinesThatMatterAreRead() {
+        #expect(AgentEvent.parse(#"{"type":"system","subtype":"init","session_id":"s1"}"#) == [.session("s1")])
+        let blocks = #"[{"type":"text","text":"Done"},{"type":"tool_use","name":"Edit","input":{"file_path":"/a/main.luau"}}]"#
+        let assistant = #"{"type":"assistant","message":{"content":"# + blocks + "}}"
+        #expect(AgentEvent.parse(assistant) == [.said("Done"), .tool("Edit", "/a/main.luau")])
+        #expect(AgentEvent.parse(#"{"type":"result","is_error":true,"result":"no"}"#) == [.finished(failed: true, message: "no")])
+    }
+
+    @Test(arguments: ["", "Last login: Fri", "{ broken", #"{"type":"user"}"#, "[1, 2]"])
+    func anythingElseIsIgnored(line: String) {
+        #expect(AgentEvent.parse(line).isEmpty)
+    }
+}

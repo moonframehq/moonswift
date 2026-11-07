@@ -47,6 +47,12 @@ iOS, drag to aim and lift to pick. The card names the file and line that drew it
 it, and holds that file's source: **what you type there applies live**. The pick
 is also saved to `~/.cache/moonswift/selection.md`, for an agent to act on.
 
+On the Mac, the card also asks an agent: pick an element, say what should change,
+and watch the window follow. It runs `claude -p` with file tools only, no shell or
+web, in the app's own folder, and carries the conversation across requests. If an
+edit breaks the app, the error goes back to the agent once. iOS can't start
+processes, so this is Mac only.
+
 The sparkle belongs to the host, not to Luau, so no script can break it.
 
 ## How it fits together
@@ -87,9 +93,11 @@ take `msg`, `class`, `style`, `grow` (`true`, `"x"`, `"y"`), `width`, `height`,
 ## Testing
 
 - `just test`: the runtime, including broken files, endless loops and the sandbox.
-- `just smoke`: the debug Mac app drives itself with real mouse events and file
-  changes, and leaves pictures in `build/snapshots`. It lives in the app because
+- `just smoke`: the debug Mac app drives itself with real mouse events, file
+  changes and a scripted agent, and leaves pictures in `build/snapshots`. It lives in the app because
   XCUITest on macOS needs Automation Mode, which takes an admin's approval.
+- `just smoke-agent`: the same with the real agent, which spends real tokens.
+  `just smoke` uses `scripts/fake-agent.sh`, which breaks the app on purpose.
 - `just ios-test`: real taps on the beta in a simulator. Slow to start, so it's
   not in `just ci`.
 - `just store-audit`: the store binary has no trace of live editing.

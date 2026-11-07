@@ -16,6 +16,7 @@ struct SelfDrive {
 
     let workspace: Workspace
     let inspection: Inspection
+    let agent: AgentSession
     let snapshots: URL
 
     private let more = "0/more"
@@ -30,11 +31,11 @@ struct SelfDrive {
     }
 
     /// Starts if `MOONSWIFT_SELFDRIVE` names a folder for the pictures.
-    static func startIfAsked(workspace: Workspace, inspection: Inspection) {
+    static func startIfAsked(workspace: Workspace, inspection: Inspection, agent: AgentSession) {
         guard let folder = ProcessInfo.processInfo.environment["MOONSWIFT_SELFDRIVE"] else { return }
-        let drive = SelfDrive(workspace: workspace, inspection: inspection, snapshots: URL(filePath: folder))
+        let drive = SelfDrive(workspace: workspace, inspection: inspection, agent: agent, snapshots: URL(filePath: folder))
         // Whatever happens, never hang whoever is waiting.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 240) {
             print("✘ timed out")
             exit(2)
         }
@@ -48,6 +49,7 @@ struct SelfDrive {
             ("saving a file reshapes the window and keeps the state", liveReload),
             ("a broken save keeps the window, then recovers", brokenSave),
             ("the sparkle finds the source and edits it live", sparkle),
+            ("an agent changes the picked element live", askAgent),
         ]
         var failed = 0
         do {
@@ -81,6 +83,8 @@ struct SelfDrive {
         inspection.cancelPicking()
         workspace.send(.string("reset"), to: "counter")
         try await until("the count resets") { countText == "0" }
+        // The panel closing moves everything: wait, or clicks land where things were.
+        try await settle()
     }
 
     // MARK: Helpers
@@ -89,8 +93,8 @@ struct SelfDrive {
         if !condition { throw Failure(message: what) }
     }
 
-    private func until(_ what: String, _ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(6)
+    private func until(_ what: String, timeout: Duration = .seconds(6), _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + timeout
         while !condition() {
             if ContinuousClock.now > deadline { throw Failure(message: "timed out waiting: \(what)") }
             try await Task.sleep(for: .milliseconds(20))
@@ -159,6 +163,17 @@ struct SelfDrive {
     private func editor(in view: NSView?) -> NSTextView? {
         if let text = view as? NSTextView, text.isEditable { return text }
         return view?.subviews.lazy.compactMap { editor(in: $0) }.first
+    }
+
+    private func lineIsVisible(_ line: Int, in view: NSTextView?) -> Bool {
+        guard let view, let manager = view.layoutManager, let container = view.textContainer else { return false }
+        let lines = view.string.components(separatedBy: "\n")
+        let start = lines.prefix(line - 1).reduce(0) { $0 + ($1 as NSString).length + 1 }
+        let glyphs = manager.glyphRange(
+            forCharacterRange: NSRange(location: start, length: (lines[line - 1] as NSString).length),
+            actualCharacterRange: nil
+        )
+        return view.visibleRect.contains(manager.boundingRect(forGlyphRange: glyphs, in: container))
     }
 
     private func source() throws -> String {
@@ -269,8 +284,9 @@ struct SelfDrive {
         try await settle()
         // Found isn't enough: it has to be seen, beside a narrower canvas.
         try check((text?.visibleRect.width ?? 0) > 200, "the inspector's editor should be visible")
-        try check((text?.visibleRect.minY ?? 0) > 0, "the editor should scroll to line \(line)")
-        try check(workspace.context.width < 800, "the canvas should make room, is \(workspace.context.width)")
+        try check(lineIsVisible(line, in: text), "line \(line) should be on screen in the editor")
+        let room = try window().frame.width - workspace.context.width
+        try check(room >= 300, "the canvas should make room for the panel, gave \(room)")
         try snapshot("5-inspected")
 
         // Type into the inspector's editor, as a user would.
@@ -285,6 +301,31 @@ struct SelfDrive {
         try check(inspection.report(in: workspace).contains(#"element: button "Way more""#), "the card should follow")
         try await settle()
         try snapshot("6-edited")
+    }
+
+    private func askAgent() async throws {
+        let original = try source()
+        defer { try? save(original) }
+        try await click(mod: "counter", path: more)
+        try await until("the count reaches 1") { countText == "1" }
+        try await clickSparkle()
+        try await click(mod: "counter", path: more)
+        try check(inspection.selection != nil, "nothing was picked")
+
+        agent.ask(
+            #"Change this button's label to "Agent was here". Nothing else."#,
+            about: inspection.report(in: workspace), in: workspace
+        )
+
+        try await until("the agent changes the window", timeout: .seconds(180)) {
+            inspection.labels.contains(#"button "Agent was here""#)
+        }
+        try await until("the agent finishes", timeout: .seconds(60)) { !agent.running }
+        try check(workspace.problems.isEmpty, "the app should end up healthy: \(workspace.problems)")
+        try check(countText == "1", "the state should survive")
+        for entry in agent.entries { print("  [\(entry.kind)] \(entry.text.prefix(150))") }
+        try await settle()
+        try snapshot("7-agent")
     }
 }
 #endif

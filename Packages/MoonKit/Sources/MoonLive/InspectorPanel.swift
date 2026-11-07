@@ -29,6 +29,9 @@ struct InspectorPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            #if os(macOS)
+            AgentBox { inspection.report(in: workspace) }
+            #endif
             location
             trail
             properties

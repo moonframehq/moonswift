@@ -14,6 +14,9 @@ struct MoonSwiftApp: App {
     #if MOON_LIVE
     @State private var inspection = Inspection()
     #endif
+    #if MOON_LIVE && os(macOS)
+    @State private var agent = AgentSession()
+    #endif
 
     var body: some Scene {
         #if os(macOS)
@@ -30,10 +33,13 @@ struct MoonSwiftApp: App {
         LiveWindow()
             .environment(workspace)
             .environment(inspection)
+            #if os(macOS)
+            .environment(agent)
+            #endif
             .task {
                 workspace.reload()
                 #if DEBUG && os(macOS)
-                SelfDrive.startIfAsked(workspace: workspace, inspection: inspection)
+                SelfDrive.startIfAsked(workspace: workspace, inspection: inspection, agent: agent)
                 #endif
                 await workspace.watch()
             }
