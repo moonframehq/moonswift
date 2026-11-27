@@ -1,6 +1,7 @@
 -- The shell: lays out the whole window. Mods fill the regions it draws.
 -- Edit anything here while the app runs: the window redraws in place and
--- every mod keeps its state.
+-- every mod keeps its state. Written as Moonframe writes a shell, so the
+-- same mods load there too.
 return mod {
 	subscribe = { "page" },
 
@@ -18,7 +19,7 @@ return mod {
 		local page = ui.column {
 			class = "main",
 			grow = true,
-			ui.mount { state.page, key = state.page },
+			ui.mount(state.page),
 		}
 		-- Layout is just code: a phone gets the navigation on top.
 		local wide = app.window.width > 560

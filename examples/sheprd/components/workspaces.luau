@@ -145,7 +145,7 @@ local function matches(state, workspace): boolean
 end
 
 function workspaces.view(state, app)
-	local machines = app.home.machines or {}
+	local machines = (app.home or {}).machines or {}
 	local list = {
 		titleMode = "inline",
 		refresh = "refresh",

@@ -1,6 +1,8 @@
 /// Set up in every module's state before it is sealed, so a module can call
 /// these but not change them. Each `ui` function tags a table with its
 /// element type and the line that built it; the host checks the rest.
+/// Moonframe's prelude is the reference: the same names, the same primary
+/// props, `send`, `component` and `ui.memo`.
 let prelude = #"""
 local caller_line = __caller_line
 local component_chunks = __components
@@ -31,17 +33,55 @@ local ui = {}
 -- Each element, and the prop its first list item stands for, if any:
 -- `ui.text { "hi" }` is `ui.text { text = "hi" }`.
 for kind, primary in {
-	row = false, column = false, panel = false, spacer = false, divider = false,
-	scroll = false, grid = false, stack = false, tabs = false, split = false,
-	list = false, form = false, image = false, progress = false, fits = false, edit = false,
-	text = "text", markdown = "text", badge = "text", label = "text", labeled = "text", share = "label", link = "text", tab = "text", unavailable = "text",
-	section = "title",
-	button = "label", toggle = "label", slider = "label", stepper = "label", picker = "label",
-	menu = "label", disclosure = "label",
-	input = "placeholder", secure = "placeholder", editor = "placeholder",
-	icon = "name", native = "name", region = "name", mount = "mod",
+	-- Moonframe's.
+	row = false, column = false, panel = false, hsplit = false, vsplit = false, pane = false,
+	divider = false, spacer = false, popover = false, overlay = false, input = false, line = false,
+	paths = false, hatch = false, map = false, list = false, revision_timeline = false,
+	text = "text", badge = "text", markdown = "text", icon = "name", image = "src",
+	terminal = "id", browser = "url", video = "source", view = "name",
+	button = "label", item = "label", region = "name", mount = "mod",
+	-- MoonSwift's own: a portable mod uses them behind `app.renderer == "swiftui"`.
+	scroll = false, grid = false, stack = false, tabs = false, split = false, form = false,
+	progress = false, fits = false, edit = false,
+	label = "text", labeled = "text", share = "label", link = "text", tab = "text", unavailable = "text",
+	section = "title", toggle = "label", slider = "label", stepper = "label", picker = "label",
+	menu = "label", disclosure = "label", secure = "placeholder", editor = "placeholder", native = "name",
 } do
 	ui[kind] = element(kind, if primary then primary else nil)
+end
+
+-- `ui.memo(key, deps, build)`: what `build()` returned the last time this
+-- view asked for `key` with equal `deps`, or `build()` now.
+local memos = {}
+local memo_count = 0
+
+function ui.memo(key: string, deps: { any }, build: () -> any)
+	if type(key) ~= "string" or type(deps) ~= "table" or type(build) ~= "function" then
+		error("ui.memo takes a key (a string), its dependencies (a list), and a function", 2)
+	end
+	local kept = memos[key]
+	if kept and #kept.deps == #deps then
+		local same = true
+		for index = 1, #deps do
+			if kept.deps[index] ~= deps[index] then
+				same = false
+				break
+			end
+		end
+		if same then
+			return kept.tree
+		end
+	end
+	local tree = build()
+	if not kept then
+		if memo_count >= 512 then
+			memos = {}
+			memo_count = 0
+		end
+		memo_count += 1
+	end
+	memos[key] = { deps = table.clone(deps), tree = tree }
+	return tree
 end
 
 local function mod(definition: any)
@@ -49,7 +89,7 @@ local function mod(definition: any)
 		error("mod takes a table", 2)
 	end
 	if type(definition.view) ~= "function" then
-		error("a mod needs a view function", 2)
+		error("mod needs a `view` function", 2)
 	end
 	return definition
 end
@@ -61,6 +101,27 @@ local function style(sheet: any)
 	return sheet
 end
 
+local function component(definition: any)
+	if type(definition) ~= "table" then
+		error("component takes a table", 2)
+	end
+	if type(definition.build) ~= "function" then
+		error("component needs a `build` function", 2)
+	end
+	return definition
+end
+
+-- `send "provider:clock" { zone = "UTC" }` is `{ to = "provider:clock", msg = { zone = "UTC" } }`.
+local function send(to: string)
+	if type(to) ~= "string" then
+		error("send takes where to send, a string", 2)
+	end
+	return function(msg: any)
+		return { to = to, msg = msg }
+	end
+end
+
+-- A component's `build`; a file that returns anything else is used as it is.
 local used = {}
 local function use(name: string)
 	if used[name] == nil then
@@ -68,10 +129,26 @@ local function use(name: string)
 		if chunk == nil then
 			error(`no component named {name}`, 2)
 		end
-		used[name] = chunk()
+		local value = chunk()
+		if type(value) == "table" and type(value.build) == "function" and value.update == nil then
+			value = value.build
+		end
+		used[name] = value
 	end
 	return used[name]
 end
 
-return ui, mod, style, use
+-- `app` as a view sees it: the host's fields, and each provider's data
+-- looked up as it is read, noting the names read so only the views that
+-- read a provider run again when it publishes.
+local function lens(fields: any, data: any, reads: any)
+	return setmetatable(fields, {
+		__index = function(_, key)
+			reads[key] = true
+			return data[key]
+		end,
+	})
+end
+
+return ui, mod, style, use, send, component, lens
 """#

@@ -186,27 +186,39 @@ You are changing a running app. Its window is written in Luau, in this folder,
 and it reloads the moment you save, keeping each mod's state. Change only .luau
 files here, and make the smallest change that does what was asked.
 
-Layout:
-  main.luau              the shell: lays out the window
-  style.luau             `return style { colors = {...}, rules = {...} }`
-  mods/<name>/main.luau  `return mod { init, update, view, region?, order?, subscribe? }`
-  components/<name>.luau returns a function of props; `local x = use "name"`
+Layout (the same as Moonframe's, so mods load on both):
+  main.luau              the shell: lays out the window; mods send it to "shell"
+  style.luau             `return style { colors = {...}, rules = {...} }`; a rule's key is
+                         an element type (`panel`), a class (`.hero`), either with
+                         `:hover`, `:selected` or `:disabled`
+  mods/<name>/main.luau  `return mod { init, update, view, region?, order?, subscribe?, styles? }`
+                         (no other keys)
+  components/<name>.luau `return component { build = function(props) ... end }`;
+                         `local x = use "name"`, then `x { ... }`
 
 A mod: `init(previous)` returns the state, and must keep what `previous` holds.
-`update(state, msg)` changes it, and may return `state, { { to = "mod", msg = ... } }`;
-`to = "topic:name"` reaches every mod with that name in `subscribe`.
-`view(state, app)` returns a tree. `app.window.width`, `.height`, `app.appearance`.
+`update(state, msg)` changes it in place, or returns `state, { send "mod" (msg) }`;
+`send "topic:name" (value)` reaches every mod with that name (or "prefix/*") in
+`subscribe`, as `{ topic = "name", value = value }`.
+`view(state, app)` returns a tree. `app.dark`, `app.window.width`, `.height`,
+`.platform` ("macos" or "ios"); a provider's data is `app.<name>`, nil until it
+publishes.
 
-Elements: ui.row, column, panel, text, badge, icon (an SF Symbol name), button,
-input, toggle, slider, spacer, divider, region, mount. The first list item of
-ui.text, badge, icon, button, region and mount is its text or name.
+Elements: ui.row, column, panel, text, badge, icon, button, item, input, list,
+toggle, slider, spacer, divider, region, mount. The first list item of ui.text,
+badge, icon, button, item, region and mount is its text or name. Icons use
+Moonframe's names ("plus", "trash-2", "git-branch", "circle-check").
 Any element takes: msg, to, class, style, id, key, tooltip, width, height,
-grow (true, "x" or "y"), gap ("none", "small", "large" or a number), align,
-padding, margin, background, color, radius, size, weight, opacity, shadow, border.
+grow = true, gap and padding ("none", "small", "normal", "large"), align,
+justify, margin, background, color, radius, size, weight, opacity, shadow,
+border = true with border_color. Text takes tone ("muted", "accent", "success",
+"warning", "danger"), size ("small", "normal", "large", "title") and weight.
 panel takes title; column and panel take scroll = true; text takes numeric = true;
-button takes icon and variant ("primary", "plain"); input takes value, placeholder,
-change, submit; toggle takes value, label, change; slider takes value, min, max,
-step, change. change and submit arrive as { msg = change, value = ... }.
+button takes icon and variant ("primary", "ghost", "outline", "danger"); input
+takes value, placeholder, change, submit; toggle takes value, label, change;
+slider takes value, min, max, step, change. change and submit arrive as
+{ msg = change, value = ... }. A long list is
+`ui.list { count = #items, row_height = 32, row = function(i) return ui.item { items[i].name } end }`.
 
 Luau is sandboxed: no files, network, os, print or require, and globals can't be
 assigned, so use `local`. Prefer a rule in style.luau over repeating styles.

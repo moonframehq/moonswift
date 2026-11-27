@@ -1,8 +1,8 @@
 -- The navigation. It says which page is showing on the `page` topic, which
 -- the shell and the status bar listen to.
 local PAGES = {
-	{ id = "counter", title = "Counter", icon = "plusminus.circle" },
-	{ id = "tasks", title = "Tasks", icon = "checklist" },
+	{ id = "counter", title = "Counter", icon = "hash" },
+	{ id = "tasks", title = "Tasks", icon = "list-checks" },
 }
 
 return mod {
@@ -21,7 +21,7 @@ return mod {
 
 	view = function(state, app)
 		local wide = app.window.width > 560
-		local rows = { class = "sidebar", gap = 2 }
+		local rows = { class = "sidebar", gap = "small" }
 		if wide then
 			rows.width = 180
 			table.insert(rows, ui.text { "MOONSWIFT", class = "panel-title" })

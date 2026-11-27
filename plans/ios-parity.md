@@ -53,7 +53,7 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 
 | Rank | SwiftUI | Screens | Luau | Status |
 | --- | --- | --- | --- | --- |
-| 1 | List, Section | ~30 | `ui.list { variant = "inset", ui.section { "Pinned", footer = ..., ... } }`; lazy rows: `rows = keys, row = "name"` draws `views.name(state, key, app)` per visible row | ✅ |
+| 1 | List, Section | ~30 | `ui.list { variant = "inset", ui.section { "Pinned", footer = ..., ... } }`; lazy rows: `count = n, row = function(i) ... end` draws row `i` as it shows | ✅ |
 | 2 | toolbar, ToolbarItem, ToolbarSpacer | ~25 | `toolbar = { ui.button { icon = "plus", place = "trailing", msg = ... }, ui.menu {...}, ui.spacer { place = ... } }` | ✅ |
 | 3 | NavigationStack, NavigationLink(value:), navigationDestination, navigationTitle | ~22 | `ui.stack { path = state.path, change = "path", screen = "screen", <root> }`, `ui.link { route = {...}, <label> }`, `title = "..."`, `titleMode = "inline"` | ✅ |
 | 4 | ContentUnavailableView | 16 | `ui.unavailable { "No chats", icon = ..., description = ..., <actions> }`, `variant = "search"` | ✅ |
@@ -98,9 +98,9 @@ as SwiftUI does.
 Luau stays sealed. What reaches the machine is Swift the app links, in three
 kinds.
 
-**Providers** publish plain data as `app.<name>` to mods that list them in
-`providers = { ... }`, and take requests sent to `provider:<name>`; answers
-come back as messages. Only mods that read a provider redraw when it changes.
+**Providers** publish plain data as `app.<name>`, and take requests sent to
+`provider:<name>`; answers come back as messages. Only mods whose view read
+a provider redraw when it changes (see plans/moonframe-compat.md).
 
 | Provider | Data | Requests |
 | --- | --- | --- |

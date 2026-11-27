@@ -64,9 +64,10 @@ The sparkle belongs to the host, not to Luau, so no script can break it.
 ```text
 app/                       the app itself, in Luau
   main.luau                the shell: lays out the window
-  style.luau               colors and rules by element type or class
+  style.luau               colors and rules by element type (`panel`) or class (`.hero`)
   mods/<name>/main.luau    a mod: init, update, view, like an Elm program
-  components/<name>.luau   shared pieces, with `use "name"`
+  components/<name>.luau   shared pieces, `component { build }`, with `use "name"`
+conformance/               mods both MoonSwift and Moonframe must draw alike
 MoonSwift/                 the entry point of all three apps, and the Mac self-drive
 iOSTests/                  real taps on the beta, in a simulator
 Packages/MoonKit/
@@ -89,6 +90,14 @@ project.yml                generates MoonSwift.xcodeproj (`just generate`)
 
 ## Elements
 
+A mod is written as for Moonframe, the desktop host on GPUI: the same `mod { }`,
+messages, topics, providers, stylesheet, icon names and shared elements, so it
+loads on both. `plans/moonframe-compat.md` says what is shared, how each host's
+own elements degrade on the other, and `app.renderer` and
+`app.window.platform` let a layout pick. Moonframe's elements here: `item`,
+`hsplit`, `vsplit`, `pane`, `popover`, `overlay`, `view`, `terminal`,
+`browser`, and placeholders for the rest. MoonSwift's own follow.
+
 Layout: `ui.row`, `column`, `panel`, `scroll`, `grid`, `fits`, `spacer`, `divider`.
 Navigation and lists: `stack`, `link`, `tabs`, `tab`, `split`, `list`, `section`,
 `form`, `disclosure`, `edit`. Content: `text`, `label`, `labeled`, `badge`, `icon`,
@@ -96,26 +105,28 @@ Navigation and lists: `stack`, `link`, `tabs`, `tab`, `split`, `list`, `section`
 `toggle`, `slider`, `stepper`, `picker`, `menu`, `share`. The host's: `region`,
 `mount`, and `native` for views the app registers in Swift.
 
-Anything can take `msg`, `class`, `style`, `grow` (`true`, `"x"`, `"y"`), `width`,
+Anything can take `msg`, `class`, `style`, `grow` (`true`; here also `"x"`, `"y"`), `width`,
 `height`, `padding`, `tooltip`, `key` or `id`, and asks the system around it with
 props: `title`, `toolbar`, `search`, `refresh`, `swipe`, `context`, `badge`,
 `overlay`, `inset`, `transition`, `sheet`, `cover`, `popover`, `alert`, `confirm`.
 
-A list's `rows` (keys) and `row` (the name of one of the mod's `views`) draw rows
-only as they scroll in: a 10,000-row list costs what the visible ones do. A
-stack's `screen` draws pushed routes the same way. `plans/ios-parity.md` maps
+A list's `count` and `row = function(i)` draw rows only as they scroll in, as
+in Moonframe: a 10,000-row list costs what the visible ones do. A stack's
+`screen = function(route)` draws pushed routes the same way. `plans/ios-parity.md` maps
 all of it to SwiftUI, and `examples/sheprd` uses most of it: `just example sheprd`.
 
 ## Providers
 
 Native data and capabilities reach a mod through providers, Swift the app
-links: a mod lists them in `providers = { "system" }`, reads `app.system`,
-and sends `provider:system` requests. `system` gives haptics, copying and the
+links: a view reads `app.system` (nil until it first publishes) and redraws
+when it publishes, a mod can hear each publish on the `provider/system` topic,
+and it sends `provider:system` requests. `system` gives haptics, copying and the
 device's idiom; an app adds its own with `workspace.attach(...)`.
 
 ## Testing
 
-- `just test`: the runtime, including broken files, endless loops and the sandbox.
+- `just test`: the runtime, including broken files, endless loops and the
+  sandbox, and the conformance suite Moonframe runs too.
 - `just smoke`: the debug Mac app drives itself with real mouse events, file
   changes and a scripted agent, and leaves pictures in `build/snapshots`. It lives in the app because
   XCUITest on macOS needs Automation Mode, which takes an admin's approval.

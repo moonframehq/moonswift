@@ -1,9 +1,9 @@
 import MoonKit
 import SwiftUI
 
-/// `ui.stack { path = state.path, change = "path", screen = "screen", <root> }`:
+/// `ui.stack { path = state.path, change = "path", screen = function(route) ... end, <root> }`:
 /// a navigation stack. Its path is a list of routes, plain values; each
-/// pushed route is drawn by the mod's `views[screen](state, route, app)`.
+/// pushed route is drawn by `screen(route)`.
 /// With `change`, the mod keeps the path and hears every push and pop;
 /// without, the stack keeps it.
 struct StackNode: View {
@@ -17,10 +17,10 @@ struct StackNode: View {
         NavigationStack(path: path) {
             root
                 .navigationDestination(for: LuauValue.self) { route in
-                    if let screen = node.string("screen") {
-                        PartView(view: screen, key: route, scope: scope.child("\(screen):\(route.summary)"))
+                    if let screen = node.function("screen") {
+                        PartView(function: screen, key: route, scope: scope.child("screen:\(route.summary)"))
                     } else {
-                        WarningMark(text: "this stack has no screen view to draw \(route.summary)")
+                        WarningMark(text: "this stack has no screen function to draw \(route.summary)")
                     }
                 }
         }
@@ -72,7 +72,7 @@ struct LinkNode: View {
     private var label: some View {
         if node.children.isEmpty {
             if let icon = node.string("icon") {
-                Label(node.string("text") ?? "", systemImage: icon)
+                Label(node.string("text") ?? "", systemImage: Icons.symbol(or: icon, default: "questionmark"))
             } else {
                 Text(verbatim: node.string("text") ?? "")
             }
@@ -105,7 +105,7 @@ struct TabsNode: View {
                 Tab(value: tab.id, role: tab.node.string("role") == "search" ? .search : nil) {
                     TabContent(node: tab.node, scope: scope.child(tab.id))
                 } label: {
-                    Label(tab.node.string("text") ?? tab.id, systemImage: tab.node.string("icon") ?? "circle")
+                    Label(tab.node.string("text") ?? tab.id, systemImage: Icons.symbol(or: tab.node.string("icon"), default: "circle"))
                 }
                 .badge(tab.node.number("badge").map(Int.init) ?? 0)
             }

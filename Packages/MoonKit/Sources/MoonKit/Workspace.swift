@@ -25,7 +25,7 @@ public final class Drawing {
 /// module that fails to load leaves the running one, and its view, in place.
 @Observable
 public final class Workspace {
-    public static let shell = "main"
+    public static let shell = "shell"
     private static let styleFile = "style.luau"
     /// Messages one send may set off, which stops two mods ping-ponging.
     private static let maxMessages = 1000
@@ -60,6 +60,11 @@ public final class Workspace {
     /// Lazy views drawn this generation, per mod.
     @ObservationIgnored private var parts: [String: (generation: Int, nodes: [PartKey: Node])] = [:]
     @ObservationIgnored var providers: [String: ProviderSlot] = [:]
+    /// Each topic's last value, which a mod hears as it loads.
+    @ObservationIgnored private(set) var topics: [String: LuauValue] = [:]
+    /// The providers each mod's view read last, which redraw it.
+    @ObservationIgnored private var reads: [String: Set<String>] = [:]
+    @ObservationIgnored private var modSheets: [String: ModSheet] = [:]
     /// What was last tried per file, so a broken file is not retried until
     /// it changes.
     @ObservationIgnored private var attempted: [String: String] = [:]
@@ -103,18 +108,21 @@ public final class Workspace {
         return drawing
     }
 
-    /// One of the mod's `views`, for `key`: drawn on first ask in each
-    /// generation, then kept. A view that fails draws as a warning mark.
-    public func part(_ view: String, key: LuauValue, of mod: String) -> Node {
+    /// What the `function`-th function of the mod's tree draws for `key`,
+    /// such as a list's `row(i)`: drawn on first ask in each generation,
+    /// then kept. One that fails draws as a warning mark.
+    public func part(_ function: Int, key: LuauValue, of mod: String) -> Node {
         let generation = drawing(of: mod).generation
-        let id = PartKey(view: view, key: key)
+        let id = PartKey(function: function, key: key)
         if let cached = parts[mod], cached.generation == generation, let node = cached.nodes[id] {
             return node
         }
         guard let module = modules[mod] else { return .invalid("no mod named \(mod)") }
-        let node: Node
+        var node: Node
         do throws(LuauError) {
-            node = try module.part(view, key: key, context: context(for: module))
+            sync(module)
+            node = try module.call(function, with: key)
+            reads[mod, default: []].formUnion(try module.read())
         } catch {
             node = .invalid(error.message)
         }
@@ -134,7 +142,8 @@ public final class Workspace {
         lastComponents = components
 
         var changed = false
-        let names = [Self.shell] + folders.names(in: "mods")
+        var loaded: [String] = []
+        let names = [Self.shell] + folders.names(in: "mods").filter { $0 != Self.shell }
         for name in names {
             let file = file(of: name)
             guard let source = folders.read(file) else { continue }
@@ -142,12 +151,13 @@ public final class Workspace {
             guard stale else { continue }
             attempted[file] = source
             changed = true
-            load(name: name, file: file, source: source, components: components)
+            if load(name: name, file: file, source: source, components: components) { loaded.append(name) }
         }
         // Files tried before that are gone, including ones that never loaded.
         for file in attempted.keys where file != Self.styleFile && folders.read(file) == nil {
             let name = file == "main.luau" ? Self.shell : file.split(separator: "/")[1].description
             modules[name] = nil
+            reads[name] = nil
             drawings[name]?.tree = nil
             parts[name] = nil
             problems[file] = nil
@@ -155,6 +165,7 @@ public final class Workspace {
             changed = true
         }
         changed = reloadStyle(components: components, force: componentsChanged) || changed
+        started(loaded)
         if changed {
             reloads += 1
             lastReload = clock.now - start
@@ -169,20 +180,49 @@ public final class Workspace {
         return folders.read(file).map { Component(name: String(entry.dropLast(5)), file: file, source: $0) }
     }
 
-    private func load(name: String, file: String, source: String, components: [Component]) {
+    /// True if it loaded, and replaced what ran before.
+    private func load(name: String, file: String, source: String, components: [Component]) -> Bool {
         do throws(LuauError) {
             let running = modules[name]
             let module = try Module(
                 name: name, file: file, source: source, previous: try running?.snapshot(),
                 components: components, limits: limits, log: logger(for: name)
             )
-            let tree = try module.view(context(for: module))
+            sync(module)
+            let tree = try module.view(context.value)
+            reads[name] = try module.read()
             modules[name] = module
             show(tree, of: name)
             problems[file] = nil
+            return true
         } catch {
             problems[file] = Problem(file: file, message: error.message)
+            return false
         }
+    }
+
+    /// Mods that just loaded hear their topics' current values, then what
+    /// each `init` sent goes out.
+    private func started(_ names: [String]) {
+        var first: [Queued] = []
+        for name in names {
+            guard let module = modules[name] else { continue }
+            for topic in topics.keys.sorted() where module.subscribes(to: topic) {
+                first.append(Queued(send: Send(to: name, message: Self.event(topic, topics[topic])), from: nil))
+            }
+        }
+        for name in names {
+            first += modules[name]?.takePending().map { Queued(send: $0, from: name) } ?? []
+        }
+        guard !first.isEmpty else { return }
+        queue += first
+        drain()
+    }
+
+    static func event(_ topic: String, _ value: LuauValue?) -> LuauValue {
+        var fields: [String: LuauValue] = ["topic": .string(topic)]
+        fields["value"] = value
+        return .fields(fields)
     }
 
     /// True if the stylesheet was looked at again.
@@ -225,6 +265,10 @@ public final class Workspace {
 
     func send(_ message: LuauValue, to: String, from: String?) {
         queue.append(Queued(send: Send(to: to, message: message), from: from))
+        drain()
+    }
+
+    private func drain() {
         guard !draining else { return }
         draining = true
         defer { draining = false }
@@ -243,7 +287,12 @@ public final class Workspace {
                 deliverToProvider(next)
                 continue
             }
-            for (name, message) in recipients(of: next.send) {
+            if next.send.to.hasPrefix("app:") {
+                let file = next.from.map(file(of:)) ?? "messages"
+                problems[file] = Problem(file: file, message: "this app answers no \(next.send.to)")
+                continue
+            }
+            for (name, message) in recipients(of: next) {
                 deliver(message, to: name)
                 touched.insert(name)
             }
@@ -251,11 +300,23 @@ public final class Workspace {
         for name in touched { render(name) }
     }
 
-    private func recipients(of send: Send) -> [(String, LuauValue)] {
+    private func recipients(of queued: Queued) -> [(String, LuauValue)] {
+        let send = queued.send
         guard send.to.hasPrefix("topic:") else { return [(send.to, send.message)] }
         let topic = String(send.to.dropFirst("topic:".count))
-        let event = LuauValue.fields(["topic": .string(topic), "value": send.message])
-        return modules.values.filter { $0.subscriptions.contains(topic) }.map { ($0.name, event) }
+        // `provider/` is the providers' and `app/` the app's: no mod's to forge.
+        if queued.from != nil, topic.hasPrefix("provider/") || topic.hasPrefix("app/") {
+            let file = queued.from.map(file(of:)) ?? "messages"
+            problems[file] = Problem(file: file, message: "topic \(topic) is not a mod's to publish")
+            return []
+        }
+        topics[topic] = send.message
+        return subscribers(of: topic, value: send.message)
+    }
+
+    private func subscribers(of topic: String, value: LuauValue) -> [(String, LuauValue)] {
+        let event = Self.event(topic, value)
+        return modules.values.filter { $0.subscribes(to: topic) }.sorted { $0.name < $1.name }.map { ($0.name, event) }
     }
 
     private func deliver(_ message: LuauValue, to name: String) {
@@ -271,7 +332,10 @@ public final class Workspace {
     func render(_ name: String) {
         guard let module = modules[name] else { return }
         do throws(LuauError) {
-            show(try module.view(context(for: module)), of: name)
+            sync(module)
+            let tree = try module.view(context.value)
+            reads[name] = try module.read()
+            show(tree, of: name)
         } catch {
             problems[module.file] = Problem(file: module.file, message: error.message)
         }
@@ -289,27 +353,66 @@ public final class Workspace {
         modules.keys.forEach(render)
     }
 
-    /// `app` as a mod sees it: the window, and the providers it reads.
-    func context(for module: Module) -> LuauValue {
-        guard case .table(let array, var fields) = context.value else { return context.value }
-        for name in module.providers {
-            fields[name] = providers[name]?.value ?? .emptyTable
+    /// Brings the provider data a module's VM holds up to date, copying
+    /// only what was published since it last looked.
+    private func sync(_ module: Module) {
+        for (name, slot) in providers where module.versions[name] != slot.version {
+            module.setData(name, slot.value, version: slot.version)
         }
-        return .table(array: array, fields: fields)
     }
 
-    /// Redraws the mods that read provider `name`.
+    /// A provider published: the mods whose views read it draw again, and
+    /// those subscribed to `provider/<name>` hear it.
     func providerChanged(_ name: String) {
-        for module in modules.values where module.providers.contains(name) {
+        let topic = "provider/\(name)"
+        if let value = providers[name]?.value {
+            queue += subscribers(of: topic, value: value).map { Queued(send: Send(to: $0.0, message: $0.1), from: nil) }
+            drain()
+        }
+        for module in modules.values where reads[module.name]?.contains(name) == true {
             render(module.name)
         }
     }
+
+    // MARK: Conformance
+
+    /// The tree `mod`'s view returns now, as data, its functions kept as
+    /// `{ __function = n }`.
+    func rawView(of mod: String) throws(LuauError) -> LuauValue? {
+        guard let module = modules[mod] else { throw LuauError("no mod named \(mod)") }
+        sync(module)
+        return try module.rawView(context.value)
+    }
+
+    /// What the `function`-th function of `mod`'s last raw view returns.
+    func rawCall(_ function: Int, with argument: LuauValue, of mod: String) throws(LuauError) -> LuauValue? {
+        guard let module = modules[mod] else { throw LuauError("no mod named \(mod)") }
+        return try module.rawCall(function, with: argument)
+    }
+
+    /// The stylesheet for what `mod` draws: `style.luau` with the mod's own
+    /// `styles` under it.
+    public func stylesheet(for mod: String) -> Stylesheet {
+        let sheet = stylesheet
+        guard let styles = modules[mod]?.styles else { return sheet }
+        if let kept = modSheets[mod], kept.base == sheet, kept.styles == styles { return kept.sheet }
+        let merged = sheet.with(styles: styles)
+        modSheets[mod] = ModSheet(base: sheet, styles: styles, sheet: merged)
+        return merged
+    }
 }
 
-/// A lazy view of a mod, by name and key.
+/// A lazy view of a mod: the function in its tree, and the key.
 struct PartKey: Hashable {
-    let view: String
+    let function: Int
     let key: LuauValue
+}
+
+/// A mod's stylesheet, and what it was made from.
+struct ModSheet {
+    let base: Stylesheet
+    let styles: LuauValue
+    let sheet: Stylesheet
 }
 
 /// A send waiting to go, and the mod that sent it, if any.

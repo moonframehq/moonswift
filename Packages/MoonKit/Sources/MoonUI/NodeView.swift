@@ -82,18 +82,19 @@ struct ModView: View {
     }
 }
 
-/// One of a mod's `views`, drawn when SwiftUI shows it: a list's row or a
-/// pushed screen. It follows the mod's generation, and its tree is compared
-/// by digest, so a row whose look didn't change costs one Luau call.
+/// What a function in a mod's tree draws, when SwiftUI shows it: a list's
+/// `row(i)` or a stack's `screen(route)`. It follows the mod's generation,
+/// and its tree is compared by digest, so a row whose look didn't change
+/// costs one Luau call.
 struct PartView: View {
-    let view: String
+    let function: Int
     let key: LuauValue
     let scope: Scope
 
     @Environment(Workspace.self) private var workspace
 
     var body: some View {
-        let node = workspace.part(view, key: key, of: scope.mod)
+        let node = workspace.part(function, key: key, of: scope.mod)
         // Exactly one view, whatever the element: a lazy list must know
         // each row is one view without asking, or it builds them all.
         VStack(spacing: 0) {
@@ -134,8 +135,11 @@ struct NodeView: View, Equatable {
         switch node.kind {
         // These place other mods' trees and have no box of their own.
         case .region:
-            ForEach(workspace.mods(in: node.string("name") ?? ""), id: \.self) { name in
-                ModView(name: name, trail: scope.trail + [crumb])
+            // With a `direction`, as in Moonframe, a stack of its own.
+            switch node.string("direction") {
+            case "row": HStack(spacing: node.spacing) { regionMods }
+            case "column": VStack(alignment: .leading, spacing: node.spacing) { regionMods }
+            default: regionMods
             }
         case .mount:
             ModView(name: node.string("mod") ?? "", trail: scope.trail + [crumb])
@@ -145,13 +149,19 @@ struct NodeView: View, Equatable {
             Spacer(minLength: node.number("min").map { CGFloat($0) } ?? 0)
         // The system's own containers: their look is the platform's, and a
         // box around them would break what they expect of their children.
-        case .stack, .tabs, .tab, .split, .list, .form, .section:
+        case .stack, .tabs, .tab, .split, .list, .form, .section, .hsplit, .vsplit:
             container
                 .accessibilityIdentifier(identifier)
                 .modifier(Decorations(node: node, scope: scope, send: send))
                 .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
         default:
-            styled(workspace.stylesheet.resolve(node, hovered: hovered))
+            styled(workspace.stylesheet(for: scope.mod).resolve(node, hovered: hovered))
+        }
+    }
+
+    private var regionMods: some View {
+        ForEach(workspace.mods(in: node.string("name") ?? ""), id: \.self) { name in
+            ModView(name: name, trail: scope.trail + [crumb])
         }
     }
 
@@ -160,7 +170,7 @@ struct NodeView: View, Equatable {
     }
 
     private func styled(_ style: StyleRule) -> some View {
-        let sheet = workspace.stylesheet
+        let sheet = workspace.stylesheet(for: scope.mod)
         return content(style)
             .modifier(Box(style: style, node: node, sheet: sheet, dark: dark, fills: fills))
             .modifier(Tap(node: node, send: send))
@@ -214,7 +224,12 @@ struct Children: View {
             .onMove(perform: RowEditing(node: node, keys: keys, send: send).move)
             .onDelete(perform: RowEditing(node: node, keys: keys, send: send).delete)
         } else {
-            ForEach(Identified.of(node.children)) { child in
+            // Moonframe's `justify`, as spacers the stack shares out.
+            let justify = node.kind == .row || node.kind == .column ? node.string("justify") : nil
+            let children = Identified.of(node.children)
+            if justify == "center" || justify == "end" { Spacer(minLength: 0) }
+            ForEach(children) { child in
+                if justify == "between", child.id != children.first?.id { Spacer(minLength: 0) }
                 // A stack sees a spacer only bare, not inside another view.
                 if child.node.kind == .spacer {
                     Spacer(minLength: child.node.number("min").map { CGFloat($0) } ?? 0)
@@ -222,27 +237,31 @@ struct Children: View {
                     NodeView(node: child.node, scope: scope.child(child.id)).equatable()
                 }
             }
+            if justify == "center" { Spacer(minLength: 0) }
         }
         if let rows = node.lazyRows {
-            LazyRows(keys: rows.keys, view: rows.view, scope: scope, owner: node)
+            LazyRows(count: rows.count, function: rows.function, scope: scope, owner: node)
         }
     }
 }
 
-/// Rows a mod draws on demand: SwiftUI asks only for those it shows.
+/// Rows a mod draws on demand, `row(i)` for `i` from 1 to `count`: SwiftUI
+/// asks only for those it shows.
 struct LazyRows: View {
-    let keys: [LuauValue]
-    let view: String
+    let count: Int
+    let function: Int
     let scope: Scope
     /// The list or section the rows are in, for `move` and `delete`.
     var owner: Node?
 
     @Environment(Workspace.self) private var workspace
 
+    private var keys: [LuauValue] { (0..<count).map { .number(Double($0 + 1)) } }
+
     var body: some View {
-        ForEach(keys, id: \.self) { key in
-            PartView(view: view, key: key, scope: scope.child("\(view):\(key.summary)"))
-                .tag(key)
+        ForEach(1..<(count + 1), id: \.self) { index in
+            PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
+                .tag(LuauValue.number(Double(index)))
         }
         .onMove(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).move })
         .onDelete(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).delete })
@@ -334,9 +353,15 @@ private struct Box: ViewModifier {
                     shape.fill(background)
                 }
             }
-            .overlay {
-                if let border = sheet.paint(style.border, dark: dark) {
-                    shape.strokeBorder(border, lineWidth: style.borderWidth ?? 1)
+            .overlay(alignment: edgeAlignment) {
+                if let edges = style.edges, edges != "none",
+                   let border = sheet.paint(style.border ?? "border", dark: dark) {
+                    let width = style.borderWidth ?? 1
+                    switch edges {
+                    case "top", "bottom": border.frame(height: width)
+                    case "left", "right": border.frame(width: width)
+                    default: shape.strokeBorder(border, lineWidth: width)
+                    }
                 }
             }
             .modifier(Glass(on: style.glass ?? false, shape: shape))
@@ -345,6 +370,17 @@ private struct Box: ViewModifier {
             .modifier(Turn(degrees: node.number("rotate")))
             .modifier(Fixed(axis: node.props["fixed"]))
             .padding(EdgeInsets(style.margin))
+    }
+
+    /// Where a one-edge border goes.
+    private var edgeAlignment: Alignment {
+        switch style.edges {
+        case "top": .top
+        case "bottom": .bottom
+        case "left": .leading
+        case "right": .trailing
+        default: .center
+        }
     }
 
     /// Where the content sits in a box bigger than it: by the column's or
