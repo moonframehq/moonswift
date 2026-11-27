@@ -12,7 +12,8 @@ struct Decorations: ViewModifier {
 
     static let keys: Set<String> = [
         "title", "subtitle", "toolbar", "search", "refresh", "swipe", "context", "sheet", "cover",
-        "popover", "alert", "confirm", "badge", "tint", "appear", "disappear", "hidesBar",
+        "popover", "alert", "confirm", "badge", "tint", "appear", "disappear", "hidesBar", "titleMode", "overlay", "rowInsets", "rowBackground",
+        "separator", "hidesTabBar",
     ]
 
     func body(content: Content) -> some View {
@@ -49,13 +50,14 @@ private struct Title: ViewModifier {
     let node: Node
 
     func body(content: Content) -> some View {
-        if let title = node.string("title"), node.kind != .panel, node.kind != .section {
+        if node.kind != .panel, node.kind != .section, node.string("title") != nil || node.string("titleMode") != nil {
             content
-                .navigationTitle(title)
+                .modifier(NavigationTitle(text: node.string("title")))
                 .modifier(Subtitle(text: node.string("subtitle")))
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(mode)
                 .toolbar(node.flag("hidesBar") ? .hidden : .automatic, for: .navigationBar)
+                .toolbar(node.flag("hidesTabBar") ? .hidden : .automatic, for: .tabBar)
                 #endif
         } else {
             content
@@ -71,6 +73,14 @@ private struct Title: ViewModifier {
         }
     }
     #endif
+}
+
+private struct NavigationTitle: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text { content.navigationTitle(text) } else { content }
+    }
 }
 
 private struct Subtitle: ViewModifier {
@@ -171,7 +181,7 @@ private struct Search: ViewModifier {
     func body(content: Content) -> some View {
         if let search = node.props["search"] {
             content
-                .searchable(text: $text, prompt: search["prompt"]?.string ?? "Search")
+                .searchable(text: $text, placement: placement(search), prompt: search["prompt"]?.string ?? "Search")
                 .onChange(of: search["value"]?.string ?? "", initial: true) { _, value in
                     if value != text { text = value }
                 }
@@ -186,6 +196,21 @@ private struct Search: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+extension Search {
+    /// `placement = "always"` keeps the field in the bar while scrolling.
+    func placement(_ search: LuauValue) -> SearchFieldPlacement {
+        #if os(iOS)
+        switch search["placement"]?.string {
+        case "always": return .navigationBarDrawer(displayMode: .always)
+        case "toolbar": return .toolbar
+        default: return .automatic
+        }
+        #else
+        return search["placement"]?.string == "toolbar" ? .toolbar : .automatic
+        #endif
     }
 }
 
@@ -246,6 +271,82 @@ private struct Row: ViewModifier {
             .modifier(ContextMenu(items: node.elements("context"), scope: scope, send: send))
             .modifier(RowBadge(node: node))
             .modifier(Tint(color: workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark)))
+            .modifier(Over(node: node, scope: scope))
+    }
+}
+
+/// `rowInsets` (edges), `rowBackground` (a color) and `separator = false`:
+/// how a list draws the row around the element.
+struct RowChrome: ViewModifier {
+    let node: Node
+
+    @Environment(Workspace.self) private var workspace
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        if node.props["rowInsets"] == nil && node.props["rowBackground"] == nil && node.props["separator"] == nil {
+            content
+        } else {
+            let background = workspace.stylesheet.paint(node.string("rowBackground"), dark: scheme == .dark)
+            let insets = node.props["rowInsets"].flatMap { Edges($0) }.map { EdgeInsets($0) }
+            content
+                .listRowInsets(insets)
+                .listRowBackground(background)
+                .listRowSeparator(node.props["separator"]?.bool == false ? .hidden : .automatic)
+        }
+    }
+}
+
+/// `overlay = { place = "bottomTrailing", x = 6, y = 6, <element> }`: an
+/// element drawn over this one, such as a status badge on an icon. A list of
+/// them puts several.
+private struct Over: ViewModifier {
+    let node: Node
+    let scope: Scope
+
+    func body(content: Content) -> some View {
+        let overlays = overlays
+        if overlays.isEmpty {
+            content
+        } else {
+            content.overlay {
+                ForEach(overlays.indices, id: \.self) { index in
+                    let overlay = overlays[index]
+                    ZStack(alignment: Self.alignment(overlay.string("place"))) {
+                        Color.clear
+                        if let first = overlay.content.first {
+                            NodeView(node: first, scope: scope.child("overlay\(index)")).equatable()
+                                .offset(x: overlay.fields["x"]?.number ?? 0, y: overlay.fields["y"]?.number ?? 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var overlays: [Overlay] {
+        guard let value = node.props["overlay"] else { return [] }
+        if case .table(let array, let fields) = value, fields.isEmpty, array.allSatisfy({ $0["type"] == nil }) {
+            return array.compactMap { item in
+                guard case .table(let inner, let fields) = item else { return nil }
+                return Overlay(fields: fields, content: inner.map(Node.init))
+            }
+        }
+        return node.overlay("overlay").map { [$0] } ?? []
+    }
+
+    static func alignment(_ name: String?) -> Alignment {
+        switch name {
+        case "top": .top
+        case "bottom": .bottom
+        case "leading": .leading
+        case "trailing": .trailing
+        case "topLeading": .topLeading
+        case "topTrailing": .topTrailing
+        case "bottomLeading": .bottomLeading
+        case "bottomTrailing": .bottomTrailing
+        default: .center
+        }
     }
 }
 

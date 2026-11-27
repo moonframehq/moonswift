@@ -61,12 +61,13 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 | 6 | Toggle, TextField, SecureField, TextEditor | ~12 | `ui.toggle`, `ui.input { multiline = true }`, `ui.secure`, `ui.editor` | ✅ |
 | 7 | sheet (+ detents), fullScreenCover, popover | ~12 | `sheet = { open = ..., dismiss = msg, detents = { "medium", "large" }, <content> }`, `cover = {...}`, `popover = {...}` | ✅ |
 | 8 | Picker (segmented, menu, inline, navigationLink, palette) | ~10 | `ui.picker { "Sort", value = ..., change = ..., options = {...}, variant = "segmented" }` | ✅ |
+| — | overlays on any element, rotation | Home rows | `overlay = { place = "bottomTrailing", x = 6, y = 6, <element> }`, `rotate = 90` | ✅ |
 | 9 | LabeledContent | 9 | `ui.row { ui.text {...}, ui.spacer {}, ui.text { ..., color = "secondary" } }` today; `ui.labeled` ☐ | ◐ |
 | 10 | Form | 8 | `ui.form { ui.section {...} }` | ✅ |
 | 11 | refreshable | 8 | `refresh = msg`, spinner held while the view says `refreshing = true` | ✅ |
 | 12 | alert (with text fields), confirmationDialog | 8 + 6 | `alert = { open, title, message, dismiss, ui.button { role = "destructive" }, ui.input {...} }`, `confirm = {...}` | ✅ |
 | 13 | contextMenu, Menu | 7 + 16 | `context = { ui.button {...}, ui.divider {}, ui.menu {...}, ui.picker {...}, ui.toggle {...} }`, `ui.menu { "More", icon = ..., msg = primary }` | ✅ |
-| 14 | searchable | 5 | `search = { value, change, prompt, submit }` | ◐ placement `always` ☐ |
+| 14 | searchable | 5 | `search = { value, change, prompt, submit, placement = "always" }` | ✅ |
 | 15 | ScrollView + LazyVStack/LazyVGrid | ~8 | `ui.scroll { anchor = "bottom", rows = ..., row = ... }`, `ui.grid { min = 92 }` | ✅ |
 | 16 | swipeActions | 4 | `swipe = { leading = {...}, trailing = { ui.button { "Close", icon = "xmark", role = "destructive", tint = "red" } } }` | ✅ |
 | 17 | TabView / Tab with badge | 2 roots | `ui.tabs { selection, change, ui.tab { "Home", icon = "house", badge = 1, <content> } }` | ✅ |
@@ -80,7 +81,7 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 | 25 | contentTransition(.numericText), animation | 3 + 35 | `numeric = true`; transitions ☐ (`appear = "slide"`) | ◐ |
 | 26 | safeAreaInset, overlay | 8 + 40 | `inset = { bottom = <element> }`, `overlay = { place = "top", <element> }` | ☐ |
 | 27 | focus, onSubmit | 4 | `submit = msg` ✅; `focus = true` ☐ | ◐ |
-| 28 | list row insets, backgrounds, separators | Home answer cards | `rowInsets = 0`, `rowBackground = "clear"`, `separator = false` | ☐ |
+| 28 | list row insets, backgrounds, separators | Home answer cards | `rowInsets = { top = 4 }`, `rowBackground = "clear"`, `separator = false` | ✅ |
 | 29 | section index | Workspaces | `index = "A"` on sections ☐ | ☐ |
 | 30 | symbolEffect, sensoryFeedback | 7 + 17 | `effect = "pulse"`; haptics through a provider | ☐ |
 
@@ -164,6 +165,10 @@ memory, 10k items          luau 3.2 MB    swift 0.6 MB
 - **Native containers.** Lists, forms, stacks and tabs are the system's own,
   with their cell reuse and prefetching; MoonSwift never draws a list itself.
 
+Lessons from the proof: a `Spacer` only spaces when a stack sees it bare,
+so children that are spacers are never wrapped (not even in `.equatable()`);
+a list row's chrome (`listRowInsets`...) is applied where the row is made.
+
 Still to do for B1: cache stylesheet resolution per node digest; keep the
 inspector's geometry tracking out of the measured build (it's beta only);
 measure on a device.
@@ -178,10 +183,22 @@ measure on a device.
    `menu`, `disclosure`, `progress`, `unavailable`, `label`, `image`, `grid`,
    `scroll`.
 5. ✅ Overlays: `sheet`, `cover`, `popover`, `alert`, `confirm`; toolbar.
-6. ◐ Providers: the protocol and the `system` provider; Sheprd's own
-   (`home`, `chat`...) belong to the app that links MoonSwift.
-7. ◐ Proof: Home rebuilt in Luau on demo data, beside the original.
+6. ◐ Providers: the protocol, tested; `DemoHome` serves Sheprd's demo data
+   as `home`. Sheprd's real ones (`home`, `chat`...) belong to the app that
+   links MoonSwift. A `system` provider (haptics, copy, open, share) is next.
+7. ✅ Proof: Home rebuilt in Luau (`examples/sheprd`, about 400 lines),
+   beside the original, light and dark: `docs/parity/home-light.png`,
+   `docs/parity/home-dark.png`. Same bars, search, folding sections, rows,
+   pills, badges, answer card, timer and tab badge; the agent tiles use SF
+   Symbols where Sheprd has brand marks. `just example sheprd` runs it.
 8. ☐ The rest of the table above: `share`, edit mode, row chrome, insets and
    overlays, focus, symbol effects, section index.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.
+
+## 6. Sandbox notes
+
+Luau has no network, and no element may give it one: `ui.image { url }`
+loads only over HTTPS from hosts the app lists in `imageHosts` (none by
+default), since a fetch would carry whatever a mod puts in the address.
+`ui.link { url }` opens only `https`, `http` and `mailto`, and only on a tap.

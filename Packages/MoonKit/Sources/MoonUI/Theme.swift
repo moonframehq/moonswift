@@ -55,11 +55,13 @@ extension Color {
         case "grouped": self = Color(uiColor: .systemGroupedBackground)
         case "fill": self = Color(uiColor: .secondarySystemFill)
         case "separator": self = Color(uiColor: .separator)
+        case "secondaryGrouped": self = Color(uiColor: .secondarySystemGroupedBackground)
         #else
         case "tertiary": self = Color(nsColor: .tertiaryLabelColor)
         case "background", "grouped": self = Color(nsColor: .windowBackgroundColor)
         case "fill": self = Color(nsColor: .quaternaryLabelColor)
         case "separator": self = Color(nsColor: .separatorColor)
+        case "secondaryGrouped": self = Color(nsColor: .controlBackgroundColor)
         #endif
         default: return nil
         }
@@ -173,6 +175,7 @@ extension Node {
         switch string("align") {
         case "start": .top
         case "end": .bottom
+        case "baseline": .firstTextBaseline
         default: .center
         }
     }

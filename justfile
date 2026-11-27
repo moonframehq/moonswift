@@ -25,6 +25,14 @@ run: build
 check dir="app":
     swift run --quiet --package-path Packages/MoonKit moon check {{dir}}
 
+# Every example app, loaded the same way.
+check-examples:
+    for example in examples/*/; do just check "$example"; done
+
+# The benchmarks of plans/ios-parity.md, optimized.
+bench:
+    swift test -c release --quiet --package-path Packages/MoonKit --filter Benchmark 2>&1 | grep -E '^bench |passed|failed'
+
 # The runtime's tests: mods, reloads, the sandbox.
 test:
     swift test --quiet --package-path Packages/MoonKit
@@ -47,6 +55,12 @@ _drive *extra:
         --env MOONSWIFT_APP="$PWD/build/smoke-app" --env MOONSWIFT_SELFDRIVE="$PWD/build/snapshots" {{extra}} "{{app}}"
     cat build/snapshots/result.txt
     grep -q '^all .* passed$' build/snapshots/result.txt
+
+# An example app on a simulator, from the store build: `just example sheprd`.
+example name="sheprd" device="iPhone 17 Pro": ios-build
+    xcrun simctl boot "{{device}}" 2>/dev/null || true
+    xcrun simctl install "{{device}}" {{derived}}/Build/Products/Debug-iphonesimulator/MoonSwiftStore.app
+    SIMCTL_CHILD_MOONSWIFT_EXAMPLE={{name}} xcrun simctl launch --terminate-running-process "{{device}}" dev.moonswift.ios
 
 # Both iOS apps, for the simulator.
 ios-build: generate
@@ -71,7 +85,7 @@ lint:
     swiftlint --quiet
 
 # Everything CI should run.
-ci: lint check test smoke ios-build store-audit
+ci: lint check check-examples test smoke ios-build store-audit
 
 # Update Luau: bump the version and checksum in the script first.
 vendor-luau:

@@ -47,6 +47,8 @@ struct StackNode: View {
 /// `ui.link { url = "https://..." }` opens a page. Its label is its children,
 /// or its `text` and `icon`.
 struct LinkNode: View {
+    static let schemes: Set<String> = ["https", "http", "mailto"]
+
     let node: Node
     let scope: Scope
     let identifier: String
@@ -56,7 +58,9 @@ struct LinkNode: View {
         if let route = node.props["route"] {
             NavigationLink(value: route) { label }
                 .accessibilityIdentifier(identifier)
-        } else if let url = node.string("url").flatMap(URL.init(string:)) {
+        } else if let url = node.string("url").flatMap(URL.init(string:)), Self.schemes.contains(url.scheme ?? "") {
+            // Only on a tap, and to the browser or mail: what it carries is
+            // in plain sight.
             Link(destination: url) { label }
                 .accessibilityIdentifier(identifier)
         } else {
@@ -73,7 +77,13 @@ struct LinkNode: View {
                 Text(verbatim: node.string("text") ?? "")
             }
         } else {
-            Children(node: node, scope: scope)
+            // One view, not a list of them: inside a list row, a ForEach
+            // would be read as rows of its own.
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Identified.of(node.children)) { child in
+                    NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                }
+            }
         }
     }
 }

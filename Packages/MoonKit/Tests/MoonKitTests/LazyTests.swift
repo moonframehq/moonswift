@@ -142,6 +142,21 @@ struct LazyTests {
         #expect(tree.children.map(\.kind.rawValue) == kinds)
     }
 
+    @Test func aFirstElementStaysAChildNotThePrimaryProp() throws {
+        let app = try Sandbox(["main.luau": """
+        return mod { view = function()
+            return ui.column { ui.link { ui.text { "inside" }, route = "r" }, ui.link { "Open", url = "https://x.dev" } }
+        end }
+        """])
+        let workspace = app.workspace()
+        workspace.reload()
+
+        let tree = try #require(workspace.drawing(of: "main").tree)
+        #expect(tree.children[0].string("text") == nil)
+        #expect(tree.children[0].children.first?.text == "inside")
+        #expect(tree.children[1].string("text") == "Open")
+    }
+
     @Test func overlaysAndPropElementsAreRead() throws {
         let app = try Sandbox(["main.luau": """
         return mod { view = function()

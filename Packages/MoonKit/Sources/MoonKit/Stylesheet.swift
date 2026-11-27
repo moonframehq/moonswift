@@ -3,7 +3,7 @@
 public struct Edges: Equatable, Sendable {
     public var top = 0.0, leading = 0.0, bottom = 0.0, trailing = 0.0
 
-    init?(_ value: LuauValue?) {
+    public init?(_ value: LuauValue?) {
         switch value {
         case .number(let all): (top, leading, bottom, trailing) = (all, all, all, all)
         case .table(let array, let fields):
@@ -28,6 +28,7 @@ public struct StyleRule: Equatable, Sendable {
     public var background: String?
     public var color: String?
     public var border: String?
+    public var borderWidth: Double?
     public var radius: Double?
     public var size: Double?
     public var weight: String?
@@ -48,6 +49,7 @@ public struct StyleRule: Equatable, Sendable {
         background = value?["background"]?.string
         color = value?["color"]?.string
         border = value?["border"]?.string
+        borderWidth = value?["borderWidth"]?.number
         radius = value?["radius"]?.number
         size = value?["size"]?.number
         weight = value?["weight"]?.string
@@ -64,6 +66,7 @@ public struct StyleRule: Equatable, Sendable {
         background = other.background ?? background
         color = other.color ?? color
         border = other.border ?? border
+        borderWidth = other.borderWidth ?? borderWidth
         radius = other.radius ?? radius
         size = other.size ?? size
         weight = other.weight ?? weight

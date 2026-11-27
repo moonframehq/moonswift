@@ -10,7 +10,7 @@ import MoonLive
 /// link MoonLive: the Mac app and the iOS beta. The store target has neither.
 @main
 struct MoonSwiftApp: App {
-    @State private var workspace = Workspace(folders: .forThisRun())
+    @State private var workspace = Workspace.forThisRun()
     #if MOON_LIVE
     @State private var inspection = Inspection()
     #endif
@@ -51,8 +51,30 @@ struct MoonSwiftApp: App {
     }
 }
 
+extension Workspace {
+    /// The app's workspace, with the providers its Luau reads.
+    static func forThisRun() -> Workspace {
+        let workspace = Workspace(folders: .forThisRun())
+        if Folders.example == "sheprd" { workspace.attach(DemoHome()) }
+        return workspace
+    }
+}
+
 extension Folders {
+    /// `MOONSWIFT_EXAMPLE=sheprd` opens `examples/sheprd` instead of `app`,
+    /// in a debug build.
+    static var example: String? {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["MOONSWIFT_EXAMPLE"]
+        #else
+        nil
+        #endif
+    }
+
     static func forThisRun() -> Folders {
+        if let example, let folder = Bundle.main.url(forResource: "examples/\(example)", withExtension: nil) {
+            return Folders(builtin: folder)
+        }
         guard let bundled = Bundle.main.url(forResource: "app", withExtension: nil) else {
             fatalError("the app folder is missing from the bundle")
         }

@@ -38,6 +38,11 @@ targetTemplates:
       - path: app
         type: folder
         buildPhase: resources
+      # Other apps on the same runtime, opened with MOONSWIFT_EXAMPLE in a
+      # debug build: fixed Luau, like app/.
+      - path: examples
+        type: folder
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true

@@ -66,6 +66,7 @@ struct ListContent: View {
                 SectionNode(node: child.node, scope: scope.child(child.id))
             } else {
                 NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                    .modifier(RowChrome(node: child.node))
                     .tag(child.node.props["key"] ?? .string(child.id))
             }
         }
@@ -106,7 +107,7 @@ struct SectionNode: View {
     }
 
     private var rows: some View {
-        Children(node: node, scope: scope)
+        Children(node: node, scope: scope, rows: true)
     }
 
     @ViewBuilder

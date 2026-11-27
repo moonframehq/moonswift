@@ -15,7 +15,7 @@ struct MenuNode: View {
                 Menu {
                     MenuItems(nodes: node.children, scope: scope, send: send)
                 } label: {
-                    ButtonLabel(node: node)
+                    label
                 } primaryAction: {
                     send(primary)
                 }
@@ -23,11 +23,21 @@ struct MenuNode: View {
                 Menu {
                     MenuItems(nodes: node.children, scope: scope, send: send)
                 } label: {
-                    ButtonLabel(node: node)
+                    label
                 }
             }
         }
         .accessibilityIdentifier(identifier)
+    }
+
+    /// `face = <element>` draws the menu's button; otherwise its label and icon.
+    @ViewBuilder
+    private var label: some View {
+        if let face = node.elements("face").first {
+            NodeView(node: face, scope: scope.child("face")).equatable()
+        } else {
+            ButtonLabel(node: node)
+        }
     }
 }
 

@@ -15,7 +15,9 @@ local function element(kind: string, primary: string?)
 			error(`ui.{kind} takes a table`, 2)
 		end
 		-- `ui.text { "hi", tone = "muted" }` reads as `text = "hi"`.
-		if primary and props[1] ~= nil and props[primary] == nil then
+		-- Only plain values: `ui.link { ui.row { ... } }` keeps its row a child.
+		local first = props[1]
+		if primary and (type(first) == "string" or type(first) == "number") and props[primary] == nil then
 			props[primary] = props[1]
 			table.remove(props, 1)
 		end

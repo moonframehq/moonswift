@@ -105,12 +105,19 @@ struct TextNode: View {
             .accessibilityIdentifier(identifier)
     }
 
-    private var text: Text {
+    private var text: some View {
+        let text = node.flag("digits") ? plain.monospacedDigit() : plain
+        // A date the system keeps current takes all the width it's offered;
+        // held to its own, it sits where a spacer puts it.
+        return text.fixedSize(horizontal: node.number("date") != nil, vertical: false)
+    }
+
+    private var plain: Text {
         if let seconds = node.number("date") {
             let date = Date(timeIntervalSince1970: seconds)
             switch node.string("format") {
             case "relative": return Text(date, style: .relative)
-            case "timer": return Text(date, style: .timer)
+            case "timer": return Text(timerInterval: date...Date.distantFuture, countsDown: false)
             case "offset": return Text(date, style: .offset)
             case "time": return Text(date, style: .time)
             case "date": return Text(date, style: .date)
@@ -175,6 +182,7 @@ struct IconNode: View {
         let image = Image(systemName: node.string(key) ?? "questionmark")
             .symbolRenderingMode(rendering)
             .symbolVariant(node.flag("fill") ? .fill : .none)
+            .modifier(SymbolEffect(name: key == "name" ? node.string("effect") : nil))
         if let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark) {
             image.foregroundStyle(tint)
         } else {
@@ -193,16 +201,40 @@ struct IconNode: View {
     }
 }
 
-/// A picture from a URL, the asset catalog, or a symbol, fitted or filled.
+/// `effect = "pulse" | "variableColor" | "breathe" | "rotate"`, running.
+private struct SymbolEffect: ViewModifier {
+    let name: String?
+
+    func body(content: Content) -> some View {
+        switch name {
+        case "pulse": content.symbolEffect(.pulse)
+        case "variableColor": content.symbolEffect(.variableColor.iterative)
+        case "breathe": content.symbolEffect(.breathe)
+        case "rotate": content.symbolEffect(.rotate)
+        default: content
+        }
+    }
+}
+
+/// A picture from the asset catalog, a symbol, or a URL on a host the app
+/// allows, fitted or filled. Luau has no network: a fetch to any URL would
+/// let a mod send out whatever it can read, in the address. So only hosts
+/// the app lists in `imageHosts` load, over HTTPS; others show a mark.
 struct ImageNode: View {
     let node: Node
 
+    @Environment(\.imageHosts) private var hosts
+
     var body: some View {
-        if let url = node.string("url").flatMap(URL.init(string:)) {
-            AsyncImage(url: url) { image in
-                fitted(image.resizable())
-            } placeholder: {
-                ProgressView()
+        if let text = node.string("url") {
+            if let url = URL(string: text), url.scheme == "https", let host = url.host(), hosts.contains(host) {
+                AsyncImage(url: url) { image in
+                    fitted(image.resizable())
+                } placeholder: {
+                    ProgressView()
+                }
+            } else {
+                WarningMark(text: "images load only over HTTPS from hosts the app allows")
             }
         } else if let asset = node.string("asset") {
             fitted(Image(asset).resizable())
@@ -306,4 +338,6 @@ public struct NativeContext {
 
 extension EnvironmentValues {
     @Entry public var nativeViews = NativeViews()
+    /// Hosts `ui.image { url = ... }` may load from. None by default.
+    @Entry public var imageHosts: Set<String> = []
 }

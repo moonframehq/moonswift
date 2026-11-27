@@ -184,6 +184,11 @@ nonisolated public struct Overlay: Equatable, Sendable {
     public let fields: [String: LuauValue]
     public let content: [Node]
 
+    public init(fields: [String: LuauValue], content: [Node]) {
+        self.fields = fields
+        self.content = content
+    }
+
     public var open: Bool { fields["open"]?.bool ?? false }
     public func string(_ key: String) -> String? { fields[key]?.string }
 }

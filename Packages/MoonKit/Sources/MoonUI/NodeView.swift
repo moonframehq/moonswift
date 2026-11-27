@@ -95,6 +95,7 @@ struct PartView: View {
     var body: some View {
         let node = workspace.part(view, key: key, of: scope.mod)
         NodeView(node: node, scope: scope).equatable()
+            .modifier(RowChrome(node: node))
     }
 }
 
@@ -186,11 +187,26 @@ struct NodeView: View, Equatable {
 struct Children: View {
     let node: Node
     let scope: Scope
+    /// In a list: each child is a row, with the row's chrome and tag. Never
+    /// elsewhere, as a spacer wrapped in modifiers stops being one.
+    var rows = false
 
     var body: some View {
-        ForEach(Identified.of(node.children)) { child in
-            NodeView(node: child.node, scope: scope.child(child.id)).equatable()
-                .tag(child.node.props["key"] ?? .string(child.id))
+        if rows {
+            ForEach(Identified.of(node.children)) { child in
+                NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                    .modifier(RowChrome(node: child.node))
+                    .tag(child.node.props["key"] ?? .string(child.id))
+            }
+        } else {
+            ForEach(Identified.of(node.children)) { child in
+                // A stack sees a spacer only bare, not inside another view.
+                if child.node.kind == .spacer {
+                    Spacer(minLength: child.node.number("min").map { CGFloat($0) } ?? 0)
+                } else {
+                    NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                }
+            }
         }
         if let rows = node.lazyRows {
             LazyRows(keys: rows.keys, view: rows.view, scope: scope)
@@ -259,16 +275,25 @@ private struct Box: ViewModifier {
             }
             .overlay {
                 if let border = sheet.paint(style.border, dark: dark) {
-                    shape.strokeBorder(border, lineWidth: 1)
+                    shape.strokeBorder(border, lineWidth: style.borderWidth ?? 1)
                 }
             }
             .modifier(Glass(on: style.glass ?? false, shape: shape))
             .modifier(Shadow(radius: style.shadow))
             .opacity(style.opacity ?? 1)
+            .modifier(Turn(degrees: node.number("rotate")))
             .padding(EdgeInsets(style.margin))
     }
 
     private var frameAlignment: Alignment { .topLeading }
+}
+
+private struct Turn: ViewModifier {
+    let degrees: Double?
+
+    func body(content: Content) -> some View {
+        if let degrees { content.rotationEffect(.degrees(degrees)) } else { content }
+    }
 }
 
 private struct Shadow: ViewModifier {
