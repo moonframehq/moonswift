@@ -7,6 +7,7 @@ public struct MoonCanvas: View {
 
     @Environment(Workspace.self) private var workspace
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
 
     public init() {}
 
@@ -26,6 +27,13 @@ public struct MoonCanvas: View {
             }
             .onChange(of: scheme, initial: true) { _, scheme in
                 workspace.context.dark = scheme == .dark
+            }
+            .onChange(of: phase, initial: true) { _, phase in
+                workspace.context.phase = switch phase {
+                case .background: "background"
+                case .inactive: "inactive"
+                default: "active"
+                }
             }
     }
 }

@@ -61,8 +61,9 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 | 6 | Toggle, TextField, SecureField, TextEditor | ~12 | `ui.toggle`, `ui.input { multiline = true }`, `ui.secure`, `ui.editor` | ✅ |
 | 7 | sheet (+ detents), fullScreenCover, popover | ~12 | `sheet = { open = ..., dismiss = msg, detents = { "medium", "large" }, <content> }`, `cover = {...}`, `popover = {...}` | ✅ |
 | 8 | Picker (segmented, menu, inline, navigationLink, palette) | ~10 | `ui.picker { "Sort", value = ..., change = ..., options = {...}, variant = "segmented" }` | ✅ |
+| — | ViewThatFits, toggle and tab styles, sheet sizing, scroll to, keys, appearance | several | `ui.fits`, `variant = "button"` / `"page"`, `sizing = "page"`, `scrollTo = key`, `shortcut = "cmd+n"`, `scheme = "dark"` | ✅ |
 | — | overlays on any element, rotation | Home rows | `overlay = { place = "bottomTrailing", x = 6, y = 6, <element> }`, `rotate = 90` | ✅ |
-| 9 | LabeledContent | 9 | `ui.row { ui.text {...}, ui.spacer {}, ui.text { ..., color = "secondary" } }` today; `ui.labeled` ☐ | ◐ |
+| 9 | LabeledContent | 9 | `ui.labeled { "Version", value = "1.0", iconView = <tile> }` | ✅ |
 | 10 | Form | 8 | `ui.form { ui.section {...} }` | ✅ |
 | 11 | refreshable | 8 | `refresh = msg`, spinner held while the view says `refreshing = true` | ✅ |
 | 12 | alert (with text fields), confirmationDialog | 8 + 6 | `alert = { open, title, message, dismiss, ui.button { role = "destructive" }, ui.input {...} }`, `confirm = {...}` | ✅ |
@@ -72,18 +73,18 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 | 16 | swipeActions | 4 | `swipe = { leading = {...}, trailing = { ui.button { "Close", icon = "xmark", role = "destructive", tint = "red" } } }` | ✅ |
 | 17 | TabView / Tab with badge | 2 roots | `ui.tabs { selection, change, ui.tab { "Home", icon = "house", badge = 1, <content> } }` | ✅ |
 | 18 | DisclosureGroup, collapsible Section | 4 + Home | `ui.disclosure { "Steps", expanded, change }`, `ui.section { collapsed = ..., change = ... }` | ✅ |
-| 19 | ShareLink | 4 | `ui.share { url = ..., text = ... }` | ☐ |
+| 19 | ShareLink | 4 | `ui.share { url = ..., text = ..., label = ... }` | ✅ |
 | 20 | TimelineView for times | 7 | `ui.text { date = t, format = "relative" | "timer" | "ago" }`, the system keeps it current | ✅ |
 | 21 | List selection (iPad sidebar) | 1 | `ui.list { selection = ..., change = ... }`, rows tagged by key | ✅ |
-| 22 | EditButton, onMove, onDelete | 2 | `ui.list { move = msg, delete = msg }` | ☐ |
+| 22 | EditButton, onMove, onDelete | 2 | `ui.section { move = msg, delete = msg }`, `ui.edit {}` | ✅ |
 | 23 | NavigationSplitView | 0 (iPad hand-built) | `ui.split { <sidebar>, <detail> }` | ✅ |
 | 24 | glassEffect, glass buttons | many | style `glass = true`; `variant = "glass" | "prominentGlass"` | ✅ |
-| 25 | contentTransition(.numericText), animation | 3 + 35 | `numeric = true`; transitions ☐ (`appear = "slide"`) | ◐ |
-| 26 | safeAreaInset, overlay | 8 + 40 | `inset = { bottom = <element> }`, `overlay = { place = "top", <element> }` | ☐ |
-| 27 | focus, onSubmit | 4 | `submit = msg` ✅; `focus = true` ☐ | ◐ |
+| 25 | contentTransition(.numericText), transition | 3 + 19 | `numeric = true`, `transition = "bottom"` | ✅ |
+| 26 | safeAreaInset, overlay | 8 + 40 | `inset = { edge = "bottom", <element> }`, `overlay = { place = "top", <element> }` | ✅ |
+| 27 | focus, onSubmit | 4 | `submit = msg`, `focus = true`, `blur = msg` | ✅ |
 | 28 | list row insets, backgrounds, separators | Home answer cards | `rowInsets = { top = 4 }`, `rowBackground = "clear"`, `separator = false` | ✅ |
-| 29 | section index | Workspaces | `index = "A"` on sections ☐ | ☐ |
-| 30 | symbolEffect, sensoryFeedback | 7 + 17 | `effect = "pulse"`; haptics through a provider | ☐ |
+| 29 | section index | Workspaces | `index = "A"` on sections, `indexed = true` on the list | ✅ |
+| 30 | symbolEffect, haptics | 7 + 17 | `effect = "pulse"`; `provider:system { haptic = "success" }` | ✅ |
 
 Fonts and colors: rules take `font` (a Dynamic Type style), `weight`,
 `design`, `size`; color names fall back to the system's (`secondary`,
@@ -169,6 +170,24 @@ Lessons from the proof: a `Spacer` only spaces when a stack sees it bare,
 so children that are spacers are never wrapped (not even in `.equatable()`);
 a list row's chrome (`listRowInsets`...) is applied where the row is made.
 
+On a simulator (iPhone 17 Pro Max, both optimized, `just ios-bench`), five
+flicks of 10,000 rows:
+
+```text
+metric                       luau        swiftui     ratio
+CPU time                     0.370 s     0.372 s     ×1.00
+CPU instructions retired     1.21 G      1.16 G      ×1.04
+Scroll deceleration          2.434 s     2.433 s     ×1.00
+Memory, peak                 58.7 MB     38.0 MB     ×1.55
+```
+
+The simulator reports no hitch ratio; that needs a device. The memory was
+180 MB before a fix: a row whose list traits (`swipeActions`, `badge`,
+`listRowInsets`) sat behind an `if` made SwiftUI build all 10,000 rows to read
+them. Row traits are now always applied, with the system's defaults when
+unset, outside a single-view wrapper. The remaining 20 MB is the Luau state,
+the keys and the row cache.
+
 Still to do for B1: cache stylesheet resolution per node digest; keep the
 inspector's geometry tracking out of the measured build (it's beta only);
 measure on a device.
@@ -183,16 +202,22 @@ measure on a device.
    `menu`, `disclosure`, `progress`, `unavailable`, `label`, `image`, `grid`,
    `scroll`.
 5. ✅ Overlays: `sheet`, `cover`, `popover`, `alert`, `confirm`; toolbar.
-6. ◐ Providers: the protocol, tested; `DemoHome` serves Sheprd's demo data
-   as `home`. Sheprd's real ones (`home`, `chat`...) belong to the app that
-   links MoonSwift. A `system` provider (haptics, copy, open, share) is next.
-7. ✅ Proof: Home rebuilt in Luau (`examples/sheprd`, about 400 lines),
+6. ✅ Providers: the protocol; `system` (haptics, copy, idiom) in MoonUI;
+   `DemoHome` serves Sheprd's demo data as `home`. Sheprd's real ones
+   (`home`, `chat`...) belong to the app that links MoonSwift. `app.phase`
+   follows the scene. No `open` or `paste`: either would give sealed Luau a
+   way out.
+7. ✅ Settings rebuilt too: the hub, a menu picker that switches the
+   app's appearance, a form page, and Terminal Keys with edit mode;
+   `docs/parity/settings-light.png`, `settings-dark.png`. `ExampleTests`
+   drive both with real taps.
+8. ✅ Proof: Home rebuilt in Luau (`examples/sheprd`, about 400 lines),
    beside the original, light and dark: `docs/parity/home-light.png`,
    `docs/parity/home-dark.png`. Same bars, search, folding sections, rows,
    pills, badges, answer card, timer and tab badge; the agent tiles use SF
    Symbols where Sheprd has brand marks. `just example sheprd` runs it.
-8. ☐ The rest of the table above: `share`, edit mode, row chrome, insets and
-   overlays, focus, symbol effects, section index.
+9. ☐ Next: the Workspaces and PRs tabs, the chat screen with `ui.native`
+   markdown and composer, hitch ratio on a device.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.
 

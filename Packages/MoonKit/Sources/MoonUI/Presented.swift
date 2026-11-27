@@ -56,6 +56,10 @@ private struct SheetModifier: ViewModifier {
                     .presentationDetents(detents(overlay))
                     .presentationDragIndicator(overlay.fields["grabber"]?.bool == true ? .visible : .automatic)
                     .interactiveDismissDisabled(overlay.fields["modal"]?.bool ?? false)
+                    .modifier(Sizing(name: overlay.string("sizing")))
+                    .presentationBackgroundInteraction(
+                        overlay.string("interactive") == "medium" ? .enabled(upThrough: .medium) : .automatic
+                    )
             }
         } else {
             content
@@ -132,7 +136,8 @@ private struct Actions: View {
                 } label: {
                     Text(verbatim: item.node.string("label") ?? "")
                 }
-                .accessibilityIdentifier(item.node.string("id") ?? scope.child(item.id).key)
+                // No identifier of our own: the system copies it onto the
+                // dialog's button too, and a test finds two.
             }
         }
     }
@@ -173,6 +178,20 @@ private struct ConfirmModifier: ViewModifier {
             }
         } else {
             content
+        }
+    }
+}
+
+/// `sizing = "page"` or `"form"`: how big a sheet is on iPad and the Mac.
+private struct Sizing: ViewModifier {
+    let name: String?
+
+    func body(content: Content) -> some View {
+        switch name {
+        case "page": content.presentationSizing(.page)
+        case "form": content.presentationSizing(.form)
+        case "fitted": content.presentationSizing(.fitted)
+        default: content
         }
     }
 }

@@ -110,10 +110,13 @@ struct TabsNode: View {
                 .badge(tab.node.number("badge").map(Int.init) ?? 0)
             }
         }
-        if node.string("variant") == "sidebar" {
-            view.tabViewStyle(.sidebarAdaptable)
-        } else {
-            view
+        switch node.string("variant") {
+        case "sidebar": view.tabViewStyle(.sidebarAdaptable)
+        #if os(iOS)
+        // A pager, as an image gallery: swipe between tabs, no bar.
+        case "page": view.tabViewStyle(.page(indexDisplayMode: node.flag("dots") ? .always : .never))
+        #endif
+        default: view
         }
     }
 

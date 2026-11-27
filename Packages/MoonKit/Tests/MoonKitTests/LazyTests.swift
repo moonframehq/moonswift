@@ -264,3 +264,17 @@ struct ProviderTests {
         #expect(workspace.drawing(of: "main").generation == main)
     }
 }
+
+@Suite("Context")
+struct ContextTests {
+    @Test func aModSeesTheScenePhaseAndRedrawsWhenItChanges() throws {
+        let app = try Sandbox(["main.luau": "return mod { view = function(_, app) return ui.text { app.phase } end }"])
+        let workspace = app.workspace()
+        workspace.reload()
+        #expect(workspace.drawing(of: "main").tree?.text == "active")
+
+        workspace.context.phase = "background"
+
+        #expect(workspace.drawing(of: "main").tree?.text == "background")
+    }
+}

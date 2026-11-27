@@ -66,12 +66,12 @@ struct ListContent: View {
                 SectionNode(node: child.node, scope: scope.child(child.id))
             } else {
                 NodeView(node: child.node, scope: scope.child(child.id)).equatable()
-                    .modifier(RowChrome(node: child.node))
+                    .modifier(RowTraits(node: child.node, scope: scope.child(child.id)))
                     .tag(child.node.props["key"] ?? .string(child.id))
             }
         }
         if let rows = node.lazyRows {
-            LazyRows(keys: rows.keys, view: rows.view, scope: scope)
+            LazyRows(keys: rows.keys, view: rows.view, scope: scope, owner: node)
         }
     }
 }

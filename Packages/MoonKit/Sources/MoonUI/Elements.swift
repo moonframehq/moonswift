@@ -23,12 +23,24 @@ extension NodeView {
             ScrollNode(node: node, scope: scope)
         case .grid:
             GridNode(node: node, scope: scope)
+        case .fits:
+            ViewThatFits { Children(node: node, scope: scope) }
+        case .labeled:
+            LabeledNode(node: node, scope: scope)
+        case .share:
+            ShareNode(node: node, identifier: identifier)
+        case .edit:
+            #if os(iOS)
+            EditButton().accessibilityIdentifier(identifier)
+            #else
+            EmptyView()
+            #endif
         case .divider:
             Divider()
         case .text:
             TextNode(node: node, identifier: identifier).font(font(style))
         case .label:
-            LabelNode(node: node).font(font(style))
+            LabelNode(node: node, scope: scope).font(font(style))
         case .badge:
             Text(verbatim: node.string("text") ?? "").font(font(style))
         case .icon:
@@ -151,16 +163,103 @@ private struct Selectable: ViewModifier {
     }
 }
 
+/// `ui.labeled { "Version", value = "1.2" }`: a label and its value, as
+/// settings show them; children, if any, are the value instead.
+struct LabeledNode: View {
+    let node: Node
+    let scope: Scope
+
+    var body: some View {
+        LabeledContent {
+            if node.children.isEmpty {
+                Text(verbatim: node.props["value"]?.plain ?? "")
+            } else {
+                Children(node: node, scope: scope)
+            }
+        } label: {
+            NodeLabel(node: node, scope: scope)
+        }
+    }
+}
+
+/// An element's label: its text, or its children, beside its `icon` (a
+/// symbol) or `iconView` (any element, as Settings' colored tiles). The
+/// system's `Label`, so a list lines its separators up with the text.
+struct NodeLabel: View {
+    let node: Node
+    let scope: Scope
+    var key = "text"
+
+    var body: some View {
+        if let view = node.elements("iconView").first {
+            Label {
+                title
+            } icon: {
+                NodeView(node: view, scope: scope.child("icon")).equatable()
+            }
+        } else if let icon = node.string("icon") {
+            Label {
+                title
+            } icon: {
+                Image(systemName: icon)
+            }
+        } else {
+            title
+        }
+    }
+
+    @ViewBuilder
+    private var title: some View {
+        if node.children.isEmpty || key != "text" {
+            Text(verbatim: node.string(key) ?? "")
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Identified.of(node.children)) { child in
+                    NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                }
+            }
+        }
+    }
+}
+
+/// `ui.share { url = "https://...", label = "Share" }` or `{ text = "..." }`:
+/// the system's share sheet, on a tap. What goes out is in plain sight.
+struct ShareNode: View {
+    let node: Node
+    let identifier: String
+
+    var body: some View {
+        Group {
+            if let url = node.string("url").flatMap(URL.init(string:)) {
+                ShareLink(item: url, subject: subject, message: message) { label }
+            } else {
+                ShareLink(item: node.string("text") ?? "", subject: subject, message: message) { label }
+            }
+        }
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var subject: Text? { node.string("subject").map { Text(verbatim: $0) } }
+    private var message: Text? { node.string("message").map { Text(verbatim: $0) } }
+
+    @ViewBuilder
+    private var label: some View {
+        let text = node.string("label") ?? "Share"
+        if node.flag("iconOnly") {
+            Image(systemName: node.string("icon") ?? "square.and.arrow.up")
+        } else {
+            Label(text, systemImage: node.string("icon") ?? "square.and.arrow.up")
+        }
+    }
+}
+
 /// `ui.label { "Settings", icon = "gear" }`: the system's text and icon.
 struct LabelNode: View {
     let node: Node
+    var scope = Scope(mod: "", path: "", trail: [])
 
     var body: some View {
-        let label = Label {
-            Text(verbatim: node.string("text") ?? "")
-        } icon: {
-            IconNode(node: node, key: "icon")
-        }
+        let label = NodeLabel(node: node, scope: scope)
         switch node.string("variant") {
         case "icon": label.labelStyle(.iconOnly)
         case "title": label.labelStyle(.titleOnly)

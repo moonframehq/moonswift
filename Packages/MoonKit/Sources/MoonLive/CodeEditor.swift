@@ -61,10 +61,16 @@ struct CodeEditor: NSViewRepresentable {
         )
         // Once the panel has finished opening and the text is laid out: until
         // then the editor isn't its final size, and the scroll wouldn't hold.
+        // Tried until it holds, as a busy machine may take longer.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(260))
-            manager.ensureLayout(for: container)
-            view.scrollRangeToVisible(target)
+            for _ in 0..<20 {
+                manager.ensureLayout(for: container)
+                view.scrollRangeToVisible(target)
+                let glyphs = manager.glyphRange(forCharacterRange: target, actualCharacterRange: nil)
+                if view.visibleRect.contains(manager.boundingRect(forGlyphRange: glyphs, in: container)) { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
         }
     }
 

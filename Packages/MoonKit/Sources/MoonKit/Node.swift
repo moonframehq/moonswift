@@ -3,6 +3,8 @@ public struct AppContext: Equatable, Sendable {
     public var width: Double
     public var height: Double
     public var dark: Bool
+    /// `active`, `inactive` or `background`, as the scene is.
+    public var phase = "active"
 
     public init(width: Double = 960, height: Double = 640, dark: Bool = false) {
         self.width = width
@@ -15,6 +17,7 @@ public struct AppContext: Equatable, Sendable {
             "window": .fields(["width": .number(width), "height": .number(height)]),
             "appearance": .string(dark ? "dark" : "light"),
             "platform": .string(Self.platform),
+            "phase": .string(phase),
         ])
     }
 
@@ -30,13 +33,13 @@ public struct AppContext: Equatable, Sendable {
 nonisolated public struct Node: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable, CaseIterable {
         // Layout.
-        case row, column, panel, spacer, divider, scroll, grid
+        case row, column, panel, spacer, divider, scroll, grid, fits
         // Navigation and lists.
         case stack, tabs, tab, split, list, section, form, link, disclosure
         // Content.
-        case text, label, badge, icon, image, progress, unavailable
+        case text, label, labeled, badge, icon, image, progress, unavailable
         // Controls.
-        case button, input, secure, editor, toggle, slider, stepper, picker, menu
+        case button, input, secure, editor, toggle, slider, stepper, picker, menu, share, edit
         // The host's: other mods, and views the app registers natively.
         case region, mount, native
         case invalid
@@ -115,7 +118,8 @@ nonisolated public struct Node: Equatable, Sendable {
     /// The text this element shows, if any.
     public var text: String? {
         switch kind {
-        case .text, .badge, .label, .link: string("text")
+        case .text, .badge, .label, .link, .labeled: string("text")
+        case .share: string("label")
         case .button, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
         case .icon, .native: string("name")
         case .input, .secure, .editor: string("placeholder")

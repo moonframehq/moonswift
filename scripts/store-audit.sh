@@ -14,6 +14,8 @@ markers=(
     "Showing the last good version."
     "Point at anything to see what drew it"
     "Copy this element for an agent"
+    # The example apps and benchmarks: beta only.
+    "MOONSWIFT_EXAMPLE"
 )
 
 build() {

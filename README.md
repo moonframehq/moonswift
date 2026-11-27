@@ -89,10 +89,29 @@ project.yml                generates MoonSwift.xcodeproj (`just generate`)
 
 ## Elements
 
-`ui.row`, `column`, `panel`, `text`, `badge`, `icon` (SF Symbols), `button`,
-`input`, `toggle`, `slider`, `spacer`, `divider`, `region`, `mount`. Anything can
-take `msg`, `class`, `style`, `grow` (`true`, `"x"`, `"y"`), `width`, `height`,
-`padding`, `tooltip`, and `key` or `id`.
+Layout: `ui.row`, `column`, `panel`, `scroll`, `grid`, `fits`, `spacer`, `divider`.
+Navigation and lists: `stack`, `link`, `tabs`, `tab`, `split`, `list`, `section`,
+`form`, `disclosure`, `edit`. Content: `text`, `label`, `labeled`, `badge`, `icon`,
+`image`, `progress`, `unavailable`. Controls: `button`, `input`, `secure`, `editor`,
+`toggle`, `slider`, `stepper`, `picker`, `menu`, `share`. The host's: `region`,
+`mount`, and `native` for views the app registers in Swift.
+
+Anything can take `msg`, `class`, `style`, `grow` (`true`, `"x"`, `"y"`), `width`,
+`height`, `padding`, `tooltip`, `key` or `id`, and asks the system around it with
+props: `title`, `toolbar`, `search`, `refresh`, `swipe`, `context`, `badge`,
+`overlay`, `inset`, `transition`, `sheet`, `cover`, `popover`, `alert`, `confirm`.
+
+A list's `rows` (keys) and `row` (the name of one of the mod's `views`) draw rows
+only as they scroll in: a 10,000-row list costs what the visible ones do. A
+stack's `screen` draws pushed routes the same way. `plans/ios-parity.md` maps
+all of it to SwiftUI, and `examples/sheprd` uses most of it: `just example sheprd`.
+
+## Providers
+
+Native data and capabilities reach a mod through providers, Swift the app
+links: a mod lists them in `providers = { "system" }`, reads `app.system`,
+and sends `provider:system` requests. `system` gives haptics, copying and the
+device's idiom; an app adds its own with `workspace.attach(...)`.
 
 ## Testing
 
@@ -102,8 +121,10 @@ take `msg`, `class`, `style`, `grow` (`true`, `"x"`, `"y"`), `width`, `height`,
   XCUITest on macOS needs Automation Mode, which takes an admin's approval.
 - `just smoke-agent`: the same with the real agent, which spends real tokens.
   `just smoke` uses `scripts/fake-agent.sh`, which breaks the app on purpose.
-- `just ios-test`: real taps on the beta in a simulator. Slow to start, so it's
-  not in `just ci`.
+- `just ios-test`: real taps on the beta in a simulator, including
+  `examples/sheprd`. Slow to start, so it's not in `just ci`.
+- `just bench`: the headless benchmarks, optimized. `just ios-bench`: 10,000
+  rows flicked in Luau and in SwiftUI, side by side.
 - `just store-audit`: the store binary has no trace of live editing.
 
 Luau is pinned by version and checksum in `scripts/vendor-luau.sh`.

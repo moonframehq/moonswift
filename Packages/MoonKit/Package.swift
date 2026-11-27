@@ -46,7 +46,7 @@ let package = Package(
         .target(name: "MoonLive", dependencies: ["MoonKit", "MoonUI"], swiftSettings: isolated),
         // `moon check <folder>`: every module loaded headlessly.
         .executableTarget(name: "moon", dependencies: ["MoonKit"], swiftSettings: isolated),
-        .testTarget(name: "MoonKitTests", dependencies: ["MoonKit", "MoonLive"], swiftSettings: isolated),
+        .testTarget(name: "MoonKitTests", dependencies: ["MoonKit", "MoonUI", "MoonLive"], swiftSettings: isolated),
     ],
     cxxLanguageStandard: .cxx17
 )

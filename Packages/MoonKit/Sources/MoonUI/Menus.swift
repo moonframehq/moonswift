@@ -72,6 +72,7 @@ private struct MenuItem: View {
             }
             .disabled(node.flag("disabled"))
             .accessibilityIdentifier(node.string("id") ?? scope.key)
+            .modifier(Shortcut(text: node.string("shortcut")))
         case .divider:
             Divider()
         case .menu:

@@ -26,6 +26,7 @@ struct ButtonNode: View {
         .disabled(node.flag("disabled"))
         .accessibilityIdentifier(identifier)
         .controlSize(node.controlSize)
+        .modifier(Shortcut(text: node.string("shortcut")))
 
         switch node.string("variant") {
         case "primary": button.buttonStyle(.borderedProminent)
@@ -94,12 +95,26 @@ struct ControlNode: View {
         case .stepper: StepperNode(node: node, identifier: identifier, send: send)
         case .picker: PickerNode(node: node, identifier: identifier, send: send)
         case .toggle:
-            Toggle(node.string("label") ?? "", isOn: Binding {
+            let toggle = Toggle(isOn: Binding {
                 node.flag("value")
             } set: { value in
                 event(node.props["change"], value: .bool(value)).map(send)
-            })
+            }) {
+                if let icon = node.string("icon") {
+                    Label(node.string("label") ?? "", systemImage: icon)
+                } else {
+                    Text(verbatim: node.string("label") ?? "")
+                }
+            }
             .accessibilityIdentifier(identifier)
+            switch node.string("variant") {
+            case "button": toggle.toggleStyle(.button)
+            case "switch": toggle.toggleStyle(.switch)
+            #if os(macOS)
+            case "checkbox": toggle.toggleStyle(.checkbox)
+            #endif
+            default: toggle
+            }
         default:
             let low = node.number("min") ?? 0
             let high = max(node.number("max") ?? 1, low + .ulpOfOne)
@@ -123,9 +138,19 @@ private struct InputNode: View {
     let send: (LuauValue) -> Void
 
     @State private var text = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         field
+            .focused($focused)
+            // `focus = true` puts the cursor here; losing it sends `blur`.
+            .onChange(of: node.flag("focus"), initial: true) { _, focus in
+                if focus != focused { focused = focus }
+            }
+            .onChange(of: focused) { _, focus in
+                if !focus, node.flag("focus") { node.props["blur"].map(send) }
+                if focus, !node.flag("focus") { node.props["focused"].map(send) }
+            }
             .accessibilityIdentifier(identifier)
             .disabled(node.flag("disabled"))
             .onChange(of: node.string("value") ?? "", initial: true) { _, value in
@@ -212,7 +237,7 @@ struct PickerNode: View {
                 }
             }
         } label: {
-            Text(verbatim: node.string("label") ?? "")
+            NodeLabel(node: node, scope: Scope(mod: "", path: identifier, trail: []), key: "label")
         }
         .accessibilityIdentifier(identifier)
 

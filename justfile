@@ -56,11 +56,13 @@ _drive *extra:
     cat build/snapshots/result.txt
     grep -q '^all .* passed$' build/snapshots/result.txt
 
-# An example app on a simulator, from the store build: `just example sheprd`.
+# An example app on a simulator, from the beta without its live tools on
+# screen, as the store would show it: `just example sheprd`.
 example name="sheprd" device="iPhone 17 Pro": ios-build
     xcrun simctl boot "{{device}}" 2>/dev/null || true
-    xcrun simctl install "{{device}}" {{derived}}/Build/Products/Debug-iphonesimulator/MoonSwiftStore.app
-    SIMCTL_CHILD_MOONSWIFT_EXAMPLE={{name}} xcrun simctl launch --terminate-running-process "{{device}}" dev.moonswift.ios
+    xcrun simctl install "{{device}}" {{derived}}/Build/Products/Debug-iphonesimulator/MoonSwiftBeta.app
+    SIMCTL_CHILD_MOONSWIFT_EXAMPLE={{name}} SIMCTL_CHILD_MOONSWIFT_PLAIN=1 \
+        xcrun simctl launch --terminate-running-process "{{device}}" dev.moonswift.ios.beta
 
 # Both iOS apps, for the simulator.
 ios-build: generate
@@ -75,7 +77,19 @@ ios-test device="iPhone 17": generate
     rm -rf build/ios.xcresult
     xcodebuild -project MoonSwift.xcodeproj -scheme MoonSwiftBeta -configuration Debug \
         -destination 'platform=iOS Simulator,name={{device}}' -derivedDataPath {{derived}} \
-        -resultBundlePath build/ios.xcresult CODE_SIGNING_ALLOWED=NO -quiet test
+        -resultBundlePath build/ios.xcresult CODE_SIGNING_ALLOWED=NO -quiet \
+        -skip-testing:MoonSwiftBetaUITests/BenchTests test
+
+# Benchmark B1: flick 10k rows drawn by Luau and by SwiftUI, and compare
+# their hitches. On a simulator the numbers only compare; on a device they
+# are the real ones.
+ios-bench device="iPhone 17 Pro": generate
+    rm -rf build/bench.xcresult
+    xcodebuild -project MoonSwift.xcodeproj -scheme MoonSwiftBeta -configuration Release \
+        -destination 'platform=iOS Simulator,name={{device}}' -derivedDataPath {{derived}} \
+        -resultBundlePath build/bench.xcresult CODE_SIGNING_ALLOWED=NO -quiet \
+        -only-testing:MoonSwiftBetaUITests/BenchTests test
+    ./scripts/bench-report.sh build/bench.xcresult
 
 # Prove the App Store build has no live editing in it.
 store-audit: generate

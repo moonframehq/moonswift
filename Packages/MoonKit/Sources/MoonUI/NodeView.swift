@@ -94,8 +94,12 @@ struct PartView: View {
 
     var body: some View {
         let node = workspace.part(view, key: key, of: scope.mod)
-        NodeView(node: node, scope: scope).equatable()
-            .modifier(RowChrome(node: node))
+        // Exactly one view, whatever the element: a lazy list must know
+        // each row is one view without asking, or it builds them all.
+        VStack(spacing: 0) {
+            NodeView(node: node, scope: scope).equatable()
+        }
+        .modifier(RowTraits(node: node, scope: scope))
     }
 }
 
@@ -143,6 +147,7 @@ struct NodeView: View, Equatable {
         // box around them would break what they expect of their children.
         case .stack, .tabs, .tab, .split, .list, .form, .section:
             container
+                .accessibilityIdentifier(identifier)
                 .modifier(Decorations(node: node, scope: scope, send: send))
                 .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
         default:
@@ -187,17 +192,27 @@ struct NodeView: View, Equatable {
 struct Children: View {
     let node: Node
     let scope: Scope
+
+    @Environment(Workspace.self) private var workspace
     /// In a list: each child is a row, with the row's chrome and tag. Never
     /// elsewhere, as a spacer wrapped in modifiers stops being one.
     var rows = false
 
+    private func send(_ message: LuauValue) {
+        workspace.send(message, to: node.string("to") ?? scope.mod)
+    }
+
     var body: some View {
         if rows {
-            ForEach(Identified.of(node.children)) { child in
+            let children = Identified.of(node.children)
+            let keys = children.map { $0.node.props["key"] ?? .string($0.id) }
+            ForEach(children) { child in
                 NodeView(node: child.node, scope: scope.child(child.id)).equatable()
-                    .modifier(RowChrome(node: child.node))
+                    .modifier(RowTraits(node: child.node, scope: scope.child(child.id)))
                     .tag(child.node.props["key"] ?? .string(child.id))
             }
+            .onMove(perform: RowEditing(node: node, keys: keys, send: send).move)
+            .onDelete(perform: RowEditing(node: node, keys: keys, send: send).delete)
         } else {
             ForEach(Identified.of(node.children)) { child in
                 // A stack sees a spacer only bare, not inside another view.
@@ -209,7 +224,7 @@ struct Children: View {
             }
         }
         if let rows = node.lazyRows {
-            LazyRows(keys: rows.keys, view: rows.view, scope: scope)
+            LazyRows(keys: rows.keys, view: rows.view, scope: scope, owner: node)
         }
     }
 }
@@ -219,12 +234,58 @@ struct LazyRows: View {
     let keys: [LuauValue]
     let view: String
     let scope: Scope
+    /// The list or section the rows are in, for `move` and `delete`.
+    var owner: Node?
+
+    @Environment(Workspace.self) private var workspace
 
     var body: some View {
         ForEach(keys, id: \.self) { key in
             PartView(view: view, key: key, scope: scope.child("\(view):\(key.summary)"))
                 .tag(key)
         }
+        .onMove(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).move })
+        .onDelete(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).delete })
+    }
+
+    private func send(_ message: LuauValue) {
+        workspace.send(message, to: owner?.string("to") ?? scope.mod)
+    }
+}
+
+/// `move = msg` and `delete = msg` on a list or section: dragging rows in
+/// edit mode sends `{ msg = move, keys = { ... }, to = n }`, the position
+/// before which they land (1-based); swiping delete sends
+/// `{ msg = delete, keys = { ... } }`. The mod changes its rows.
+struct RowEditing {
+    let node: Node
+    let keys: [LuauValue]
+    let send: (LuauValue) -> Void
+
+    var move: ((IndexSet, Int) -> Void)? {
+        guard let message = node.props["move"] else { return nil }
+        return { from, to in
+            let moved = from.filter { $0 < keys.count }.map { keys[$0] }
+            event(message, value: .table(array: moved, fields: [:]))
+                .map { Self.adding(["keys": .table(array: moved, fields: [:]), "to": .number(Double(to + 1))], to: $0) }
+                .map(send)
+        }
+    }
+
+    var delete: ((IndexSet) -> Void)? {
+        guard let message = node.props["delete"] else { return nil }
+        return { offsets in
+            let gone = offsets.filter { $0 < keys.count }.map { keys[$0] }
+            event(message, value: .table(array: gone, fields: [:]))
+                .map { Self.adding(["keys": .table(array: gone, fields: [:])], to: $0) }
+                .map(send)
+        }
+    }
+
+    private static func adding(_ extra: [String: LuauValue], to message: LuauValue) -> LuauValue {
+        guard case .table(let array, var fields) = message else { return message }
+        fields.merge(extra) { _, new in new }
+        return .table(array: array, fields: fields)
     }
 }
 
@@ -267,7 +328,7 @@ private struct Box: ViewModifier {
                 maxHeight: node.growsTall ? .infinity : nil,
                 alignment: frameAlignment
             )
-            .foregroundStyle(sheet.paint(style.color, dark: dark).map(AnyShapeStyle.init) ?? AnyShapeStyle(.foreground))
+            .modifier(Ink(color: sheet.paint(style.color, dark: dark)))
             .background {
                 if let background = sheet.paint(style.background, dark: dark) {
                     shape.fill(background)
@@ -286,6 +347,16 @@ private struct Box: ViewModifier {
     }
 
     private var frameAlignment: Alignment { .topLeading }
+}
+
+/// A color only when one is set: otherwise the system's own styling stays,
+/// as a labeled row's secondary value.
+private struct Ink: ViewModifier {
+    let color: Color?
+
+    func body(content: Content) -> some View {
+        if let color { content.foregroundStyle(color) } else { content }
+    }
 }
 
 private struct Turn: ViewModifier {

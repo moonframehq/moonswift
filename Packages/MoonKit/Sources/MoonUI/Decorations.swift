@@ -13,7 +13,7 @@ struct Decorations: ViewModifier {
     static let keys: Set<String> = [
         "title", "subtitle", "toolbar", "search", "refresh", "swipe", "context", "sheet", "cover",
         "popover", "alert", "confirm", "badge", "tint", "appear", "disappear", "hidesBar", "titleMode", "overlay", "rowInsets", "rowBackground",
-        "separator", "hidesTabBar",
+        "separator", "hidesTabBar", "inset", "transition", "scrollTo", "index", "indexed", "scheme",
     ]
 
     func body(content: Content) -> some View {
@@ -43,6 +43,9 @@ private struct Screen: ViewModifier {
             .modifier(Search(node: node, send: send))
             .modifier(Refresh(node: node, scope: scope, send: send, workspace: workspace))
             .modifier(Lifecycle(node: node, send: send))
+            .modifier(Inset(node: node, scope: scope))
+            .modifier(ScrollTo(node: node))
+            .modifier(SectionIndex(node: node))
     }
 }
 
@@ -155,6 +158,7 @@ private struct ToolbarEntry: View {
             .disabled(node.flag("disabled"))
             .accessibilityIdentifier(node.string("id") ?? scope.key)
             .modifier(Prominent(on: node.string("variant") == "primary"))
+            .modifier(Shortcut(text: node.string("shortcut")))
         case .menu:
             MenuNode(node: node, scope: scope, identifier: node.string("id") ?? scope.key, send: send)
         default:
@@ -267,33 +271,214 @@ private struct Row: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .modifier(Swipe(node: node, scope: scope, send: send))
             .modifier(ContextMenu(items: node.elements("context"), scope: scope, send: send))
-            .modifier(RowBadge(node: node))
             .modifier(Tint(color: workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark)))
             .modifier(Over(node: node, scope: scope))
+            .modifier(Transition(name: node.string("transition")))
+            .modifier(Scheme(name: node.string("scheme")))
     }
 }
 
-/// `rowInsets` (edges), `rowBackground` (a color) and `separator = false`:
-/// how a list draws the row around the element.
-struct RowChrome: ViewModifier {
+/// `scheme = "dark" | "light"`: the appearance for this element's window,
+/// as an Appearance setting chooses. Anything else follows the system.
+private struct Scheme: ViewModifier {
+    let name: String?
+
+    func body(content: Content) -> some View {
+        switch name {
+        case "dark": content.preferredColorScheme(.dark)
+        case "light": content.preferredColorScheme(.light)
+        case nil: content
+        default: content.preferredColorScheme(nil)
+        }
+    }
+}
+
+/// `inset = { edge = "bottom", <element> }`: an element the content scrolls
+/// under, as a composer under a chat or a bar over a list. A list of them
+/// insets several edges.
+private struct Inset: ViewModifier {
     let node: Node
+    let scope: Scope
+
+    func body(content: Content) -> some View {
+        let insets = Self.insets(node)
+        let top = insets.first { $0.string("edge") == "top" }
+        let bottom = insets.first { $0.string("edge") != "top" }
+        content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let bottom, let first = bottom.content.first {
+                    NodeView(node: first, scope: scope.child("inset-bottom")).equatable()
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let top, let first = top.content.first {
+                    NodeView(node: first, scope: scope.child("inset-top")).equatable()
+                }
+            }
+    }
+
+    static func insets(_ node: Node) -> [Overlay] {
+        guard let value = node.props["inset"] else { return [] }
+        if case .table(let array, let fields) = value, fields.isEmpty, array.allSatisfy({ $0["type"] == nil }) {
+            return array.compactMap { item in
+                guard case .table(let inner, let fields) = item else { return nil }
+                return Overlay(fields: fields, content: inner.map(Node.init))
+            }
+        }
+        return node.overlay("inset").map { [$0] } ?? []
+    }
+}
+
+/// `scrollTo = key`: scrolls the list or scroll view to the row with that
+/// key whenever it changes; `scrollAnchor = "bottom"` puts it there.
+private struct ScrollTo: ViewModifier {
+    let node: Node
+
+    func body(content: Content) -> some View {
+        if let target = node.props["scrollTo"] {
+            ScrollViewReader { proxy in
+                content.onChange(of: target, initial: true) { _, target in
+                    let anchor: UnitPoint = switch node.string("scrollAnchor") {
+                    case "bottom": .bottom
+                    case "center": .center
+                    default: .top
+                    }
+                    withAnimation(.snappy) {
+                        proxy.scrollTo(target, anchor: anchor)
+                        if let key = target.string { proxy.scrollTo(key, anchor: anchor) }
+                    }
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// `index = "A"` on a section labels it in the list's index along the edge,
+/// shown when the list says `indexed = true`.
+private struct SectionIndex: ViewModifier {
+    let node: Node
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if let label = node.string("index") {
+            content.sectionIndexLabel(Text(verbatim: label))
+        } else if let shown = node.props["indexed"]?.bool {
+            content.listSectionIndexVisibility(shown ? .visible : .hidden)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+/// `transition = "opacity" | "scale" | "slide" | "top" | "bottom" | ...`:
+/// how the element comes and goes as the view changes.
+private struct Transition: ViewModifier {
+    let name: String?
+
+    func body(content: Content) -> some View {
+        switch name {
+        case "opacity": content.transition(.opacity)
+        case "scale": content.transition(.scale.combined(with: .opacity))
+        case "slide": content.transition(.slide)
+        case "top": content.transition(.move(edge: .top).combined(with: .opacity))
+        case "bottom": content.transition(.move(edge: .bottom).combined(with: .opacity))
+        case "leading": content.transition(.move(edge: .leading).combined(with: .opacity))
+        case "trailing": content.transition(.move(edge: .trailing).combined(with: .opacity))
+        default: content
+        }
+    }
+}
+
+/// `shortcut = "cmd+n"`, `"cmd+shift+k"`, `"return"`, `"escape"`: a key
+/// that presses the button, on a keyboard.
+struct Shortcut: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let (key, modifiers) = text.flatMap(Self.parse) {
+            content.keyboardShortcut(key, modifiers: modifiers)
+        } else {
+            content
+        }
+    }
+
+    static func parse(_ text: String) -> (KeyEquivalent, EventModifiers)? {
+        var modifiers: EventModifiers = []
+        var key: KeyEquivalent?
+        for part in text.lowercased().split(separator: "+") {
+            switch part {
+            case "cmd", "command": modifiers.insert(.command)
+            case "shift": modifiers.insert(.shift)
+            case "opt", "option", "alt": modifiers.insert(.option)
+            case "ctrl", "control": modifiers.insert(.control)
+            case "return", "enter": key = .return
+            case "escape", "esc": key = .escape
+            case "delete": key = .delete
+            case "tab": key = .tab
+            case "space": key = .space
+            case "up": key = .upArrow
+            case "down": key = .downArrow
+            case "left": key = .leftArrow
+            case "right": key = .rightArrow
+            default: if part.count == 1, let character = part.first { key = KeyEquivalent(character) }
+            }
+        }
+        return key.map { ($0, modifiers) }
+    }
+}
+
+/// What a list reads off a row itself, so it must sit on the row's outside:
+/// `swipe`, `badge` and the row's chrome (`rowInsets`, `rowBackground`,
+/// `separator = false`). Lists apply it where they make each row.
+///
+/// Every modifier here is always applied, unset ones with the system's
+/// default. A lazy list reads these as traits, and a row whose traits sit
+/// behind an `if` makes it build every row to find them: 10,000 rows, all
+/// drawn at once.
+struct RowTraits: ViewModifier {
+    let node: Node
+    let scope: Scope
 
     @Environment(Workspace.self) private var workspace
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        if node.props["rowInsets"] == nil && node.props["rowBackground"] == nil && node.props["separator"] == nil {
-            content
-        } else {
-            let background = workspace.stylesheet.paint(node.string("rowBackground"), dark: scheme == .dark)
-            let insets = node.props["rowInsets"].flatMap { Edges($0) }.map { EdgeInsets($0) }
-            content
-                .listRowInsets(insets)
-                .listRowBackground(background)
-                .listRowSeparator(node.props["separator"]?.bool == false ? .hidden : .automatic)
+        let swipe = node.props["swipe"]
+        let trailing = swipe.map { $0["trailing"].map(Self.buttons) ?? ($0["leading"] == nil ? Self.buttons($0) : []) } ?? []
+        let leading = swipe?["leading"].map(Self.buttons) ?? []
+        content
+            .swipeActions(edge: .trailing, allowsFullSwipe: !trailing.isEmpty) { buttons(trailing) }
+            .swipeActions(edge: .leading, allowsFullSwipe: !leading.isEmpty) { buttons(leading) }
+            .badge(badge)
+            .listRowInsets(node.props["rowInsets"].flatMap { Edges($0) }.map { EdgeInsets($0) })
+            .listRowBackground(workspace.stylesheet.paint(node.string("rowBackground"), dark: scheme == .dark))
+            .listRowSeparator(node.props["separator"]?.bool == false ? .hidden : .automatic)
+    }
+
+    private var badge: Text? {
+        if let count = node.number("badge") { return Text(verbatim: String(Int(count))) }
+        return node.string("badge").map { Text(verbatim: $0) }
+    }
+
+    private static func buttons(_ value: LuauValue) -> [Node] {
+        if value["type"] != nil { return [Node(value)] }
+        return (value.array ?? []).filter { $0 != .bool(false) }.map(Node.init)
+    }
+
+    private func buttons(_ nodes: [Node]) -> some View {
+        ForEach(Identified.of(nodes)) { item in
+            SwipeButton(node: item.node, send: send)
         }
+    }
+
+    private func send(_ message: LuauValue) {
+        workspace.send(message, to: node.string("to") ?? scope.mod)
     }
 }
 
@@ -350,37 +535,6 @@ private struct Over: ViewModifier {
     }
 }
 
-/// `swipe = { <buttons> }` for the trailing edge, or
-/// `{ leading = { ... }, trailing = { ... } }`. A button's `tint` colors it.
-private struct Swipe: ViewModifier {
-    let node: Node
-    let scope: Scope
-    let send: (LuauValue) -> Void
-
-    func body(content: Content) -> some View {
-        if let swipe = node.props["swipe"] {
-            let trailing = swipe["trailing"].map(Self.buttons) ?? (swipe["leading"] == nil ? Self.buttons(swipe) : [])
-            let leading = swipe["leading"].map(Self.buttons) ?? []
-            content
-                .swipeActions(edge: .trailing, allowsFullSwipe: !trailing.isEmpty) { buttons(trailing) }
-                .swipeActions(edge: .leading, allowsFullSwipe: !leading.isEmpty) { buttons(leading) }
-        } else {
-            content
-        }
-    }
-
-    private static func buttons(_ value: LuauValue) -> [Node] {
-        if value["type"] != nil { return [Node(value)] }
-        return (value.array ?? []).filter { $0 != .bool(false) }.map(Node.init)
-    }
-
-    private func buttons(_ nodes: [Node]) -> some View {
-        ForEach(Identified.of(nodes)) { item in
-            SwipeButton(node: item.node, send: send)
-        }
-    }
-}
-
 private struct SwipeButton: View {
     let node: Node
     let send: (LuauValue) -> Void
@@ -410,20 +564,6 @@ private struct ContextMenu: ViewModifier {
             content.contextMenu {
                 MenuItems(nodes: items, scope: scope.child("context"), send: send)
             }
-        }
-    }
-}
-
-private struct RowBadge: ViewModifier {
-    let node: Node
-
-    func body(content: Content) -> some View {
-        if let count = node.number("badge") {
-            content.badge(Int(count))
-        } else if let text = node.string("badge") {
-            content.badge(Text(verbatim: text))
-        } else {
-            content
         }
     }
 }

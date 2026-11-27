@@ -30,6 +30,26 @@ struct MoonSwiftApp: App {
 
     @ViewBuilder private var root: some View {
         #if MOON_LIVE
+        // Benchmark B1: the store's canvas, without live tools, or the same
+        // list in SwiftUI. See plans/ios-parity.md.
+        switch ProcessInfo.processInfo.environment["MOONSWIFT_BENCH"] {
+        case "swiftui": BenchList()
+        case "luau": MoonCanvas().environment(workspace).task { workspace.reload() }
+        default:
+            // The app as the store shows it, for tests and screenshots.
+            if ProcessInfo.processInfo.environment["MOONSWIFT_PLAIN"] != nil {
+                MoonCanvas().environment(workspace).task { workspace.reload() }
+            } else {
+                app
+            }
+        }
+        #else
+        app
+        #endif
+    }
+
+    @ViewBuilder private var app: some View {
+        #if MOON_LIVE
         LiveWindow()
             .environment(workspace)
             .environment(inspection)
@@ -55,17 +75,21 @@ extension Workspace {
     /// The app's workspace, with the providers its Luau reads.
     static func forThisRun() -> Workspace {
         let workspace = Workspace(folders: .forThisRun())
+        workspace.attach(SystemProvider())
+        #if MOON_LIVE
         if Folders.example == "sheprd" { workspace.attach(DemoHome()) }
+        #endif
         return workspace
     }
 }
 
 extension Folders {
     /// `MOONSWIFT_EXAMPLE=sheprd` opens `examples/sheprd` instead of `app`,
-    /// in a debug build.
+    /// in the Mac app and the beta, which bundle `examples/`.
     static var example: String? {
-        #if DEBUG
-        ProcessInfo.processInfo.environment["MOONSWIFT_EXAMPLE"]
+        #if MOON_LIVE
+        ProcessInfo.processInfo.environment["MOONSWIFT_BENCH"] == "luau"
+            ? "bench" : ProcessInfo.processInfo.environment["MOONSWIFT_EXAMPLE"]
         #else
         nil
         #endif

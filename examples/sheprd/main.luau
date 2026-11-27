@@ -1,6 +1,7 @@
 -- Sheprd's Home, in Luau: every agent across computers, in sections by
 -- what it needs, read from the `home` provider. Four tabs, as on iPhone.
 local parts = use "parts"
+local settings = use "settings"
 
 type State = {
 	tab: string,
@@ -10,6 +11,15 @@ type State = {
 	unreadOnly: boolean,
 	folded: { [string]: boolean },
 	closing: string?,
+	settingsPath: { any },
+	appearance: string,
+	links: string,
+	rowLines: number,
+	returnSends: boolean,
+	speak: boolean,
+	haptics: boolean,
+	sounds: boolean,
+	keys: { string },
 }
 
 local order = { "blocked", "done", "working", "idle" }
@@ -249,7 +259,7 @@ local function answerCard(chat)
 end
 
 return mod {
-	providers = { "home" },
+	providers = { "home", "system" },
 
 	init = function(previous)
 		local state = previous or {}
@@ -261,6 +271,15 @@ return mod {
 			unreadOnly = state.unreadOnly or false,
 			folded = state.folded or {},
 			closing = nil,
+			settingsPath = state.settingsPath or {},
+			appearance = state.appearance or "System",
+			links = state.links or "Sheprd",
+			rowLines = state.rowLines or 1,
+			returnSends = state.returnSends or false,
+			speak = state.speak or false,
+			haptics = if state.haptics == nil then true else state.haptics,
+			sounds = if state.sounds == nil then true else state.sounds,
+			keys = state.keys or { "esc", "tab", "ctrl", "↑", "↓", "←", "→", "|", "~", "/" },
 		}
 	end,
 
@@ -273,6 +292,8 @@ return mod {
 				state.closing = nil
 			elseif msg == "allRead" then
 				return state, { { to = "provider:home", msg = { readAll = true } } }
+			elseif msg == "tryHaptic" then
+				return state, { { to = "provider:system", msg = { haptic = "success" } } }
 			end
 			return
 		end
@@ -286,6 +307,48 @@ return mod {
 			state.sort = msg.value
 		elseif msg.msg == "unreadOnly" then
 			state.unreadOnly = msg.value
+		elseif msg.msg == "settingsPath" then
+			state.settingsPath = msg.value
+		elseif msg.msg == "moveKey" then
+			-- Take the moved keys out, then put them back before `to`.
+			local moved, kept, before = {}, {}, nil
+			for _, key in msg.keys do
+				moved[key] = true
+			end
+			local target = state.keys[msg.to]
+			for _, key in state.keys do
+				if not moved[key] then
+					table.insert(kept, key)
+				end
+			end
+			before = #kept + 1
+			for i, key in kept do
+				if key == target then
+					before = i
+				end
+			end
+			for i = #msg.keys, 1, -1 do
+				table.insert(kept, before, msg.keys[i])
+			end
+			state.keys = kept
+		elseif msg.msg == "dropKey" then
+			local gone = {}
+			for _, key in msg.keys do
+				gone[key] = true
+			end
+			local kept = {}
+			for _, key in state.keys do
+				if not gone[key] then
+					table.insert(kept, key)
+				end
+			end
+			state.keys = kept
+		elseif state[msg.msg] ~= nil and msg.value ~= nil then
+			-- Settings: each control's `change` is the field it sets.
+			state[msg.msg] = msg.value
+			if state.haptics and msg.msg ~= "haptics" then
+				return state, { { to = "provider:system", msg = { haptic = "selection" } } }
+			end
 		elseif msg.fold then
 			state.folded[msg.fold] = not state.folded[msg.fold] or nil
 		elseif msg.asking then
@@ -300,12 +363,18 @@ return mod {
 
 	view = function(state: State, app)
 		return ui.tabs {
+			scheme = string.lower(state.appearance),
 			selection = state.tab,
 			change = "tab",
 			ui.tab { "Home", icon = "house", key = "home", badge = app.home.waiting, home(state, app) },
 			ui.tab { "Workspaces", icon = "square.stack.3d.up", key = "workspaces", soon("Workspaces", "square.stack.3d.up") },
 			ui.tab { "PRs", icon = "arrow.triangle.pull", key = "prs", soon("Pull Requests", "arrow.triangle.pull") },
-			ui.tab { "Settings", icon = "gearshape", key = "settings", soon("Settings", "gearshape") },
+			ui.tab {
+				"Settings",
+				icon = "gearshape",
+				key = "settings",
+				ui.stack { path = state.settingsPath, change = "settingsPath", screen = "screen", settings.hub(state, app) },
+			},
 		}
 	end,
 
@@ -322,6 +391,9 @@ return mod {
 		end,
 
 		screen = function(state: State, route, app)
+			if route.page then
+				return settings.page(state, route.page)
+			end
 			local chat = byKey(app)[route.chat]
 			return ui.unavailable {
 				chat and chat.title or "Gone",

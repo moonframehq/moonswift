@@ -33,8 +33,8 @@ local ui = {}
 for kind, primary in {
 	row = false, column = false, panel = false, spacer = false, divider = false,
 	scroll = false, grid = false, stack = false, tabs = false, split = false,
-	list = false, form = false, image = false, progress = false,
-	text = "text", badge = "text", label = "text", link = "text", tab = "text", unavailable = "text",
+	list = false, form = false, image = false, progress = false, fits = false, edit = false,
+	text = "text", badge = "text", label = "text", labeled = "text", share = "label", link = "text", tab = "text", unavailable = "text",
 	section = "title",
 	button = "label", toggle = "label", slider = "label", stepper = "label", picker = "label",
 	menu = "label", disclosure = "label",

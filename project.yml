@@ -35,12 +35,8 @@ targetTemplates:
     type: application
     sources:
       - path: MoonSwift
+        excludes: ["Examples/**"]
       - path: app
-        type: folder
-        buildPhase: resources
-      # Other apps on the same runtime, opened with MOONSWIFT_EXAMPLE in a
-      # debug build: fixed Luau, like app/.
-      - path: examples
         type: folder
         buildPhase: resources
     settings:
@@ -63,6 +59,13 @@ targets:
   MoonSwift:
     templates: [App]
     platform: macOS
+    # Other apps on the same runtime, opened with MOONSWIFT_EXAMPLE, and the
+    # Swift they need. Not in the store app, where nothing could open them.
+    sources:
+      - path: MoonSwift/Examples
+      - path: examples
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: MoonKit
         product: MoonKit
@@ -93,6 +96,13 @@ targets:
   # build can't be promoted to the App Store by mistake.
   MoonSwiftBeta:
     templates: [iOSApp]
+    # Other apps on the same runtime, opened with MOONSWIFT_EXAMPLE, and the
+    # Swift they need. Not in the store app, where nothing could open them.
+    sources:
+      - path: MoonSwift/Examples
+      - path: examples
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: MoonKit
         product: MoonKit
