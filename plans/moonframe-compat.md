@@ -267,7 +267,10 @@ Only what a phone can't do without, in moonframehq/moonframe:
    `types/moonframe.d.luau`, so a portable mod type-checks its phone branch.
 2. The conformance suite and a test that runs it (section 7).
 
-Both are moonframehq/moonframe#253.
+Both are moonframehq/moonframe#253. A later one: MoonSwift refuses a mod's
+message to another mod that carries a `topic` under `provider/` or `app/`,
+so no mod can forge a provider's or the app's event; Moonframe delivers it
+as plain data today and should refuse it the same way.
 
 Not proposed: everything else in section 1 moved MoonSwift's way.
 

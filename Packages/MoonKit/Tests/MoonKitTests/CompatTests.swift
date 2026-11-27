@@ -60,6 +60,30 @@ struct CompatTests {
         #expect(workspace.topics["provider/git"] == nil)
     }
 
+    @Test func aModCantForgeAProvidersEventToAnother() throws {
+        let app = try Sandbox([
+            "main.luau": """
+            return mod {
+                update = function(state) return state, { send "victim" { topic = "provider/git", value = { branch = "x" } } } end,
+                view = function() return ui.text "x" end,
+            }
+            """,
+            "mods/victim/main.luau": """
+            return mod {
+                init = function() return { heard = "nothing" } end,
+                update = function(state, msg) state.heard = msg.topic end,
+                view = function(state) return ui.text { state.heard } end,
+            }
+            """,
+        ])
+        let workspace = app.workspace()
+        workspace.reload()
+        workspace.send(.string("go"), to: "shell")
+
+        #expect(workspace.trees["victim"]?.text == "nothing")
+        #expect(workspace.problem(of: "shell") != nil)
+    }
+
     @Test func useGivesAComponentsBuildAndAnythingElseAsItIs() throws {
         let app = try Sandbox([
             "components/pill.luau": "return component { build = function(props) return ui.badge { props.text } end }",
@@ -106,6 +130,28 @@ struct CompatTests {
         #expect(style.color == "muted-foreground")
         #expect(style.font == "footnote")
         #expect(style.padding?.leading == 8)
+    }
+
+    @Test func numbersPastAnIntDontTrapTheHost() throws {
+        let app = try Sandbox(["main.luau": """
+        return mod { view = function()
+            return ui.column {
+                [math.huge] = ui.text "far",
+                ui.list { count = math.huge, row = function(i) return ui.text "row" end },
+                ui.list { count = -math.huge, row = { __function = math.huge } },
+            }
+        end }
+        """])
+        let workspace = app.workspace()
+        workspace.reload()
+
+        let tree = try #require(workspace.trees["shell"])
+        #expect(tree.children.map(\.kind) == [.list, .list], "a math.huge key is no list position")
+        #expect(tree.children[0].lazyRows?.count == 0, "nor is math.huge a count")
+        #expect(tree.children[1].lazyRows == nil)
+
+        let big = Node(.fields(["type": .string("list"), "count": .number(1e12), "row": .fields(["__function": .number(1)])]))
+        #expect(big.lazyRows?.count == Node.maxRows)
     }
 
     @Test func theAppKnowsItIsSwiftUI() throws {

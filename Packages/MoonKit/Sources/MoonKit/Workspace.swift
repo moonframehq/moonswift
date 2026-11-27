@@ -302,16 +302,21 @@ public final class Workspace {
 
     private func recipients(of queued: Queued) -> [(String, LuauValue)] {
         let send = queued.send
-        guard send.to.hasPrefix("topic:") else { return [(send.to, send.message)] }
-        let topic = String(send.to.dropFirst("topic:".count))
-        // `provider/` is the providers' and `app/` the app's: no mod's to forge.
-        if queued.from != nil, topic.hasPrefix("provider/") || topic.hasPrefix("app/") {
+        // `provider/` is the providers' and `app/` the app's: no mod's to
+        // publish, nor to forge as a topic event sent straight to a mod.
+        let topic = send.to.hasPrefix("topic:") ? String(send.to.dropFirst("topic:".count)) : send.message["topic"]?.string
+        if queued.from != nil, let topic, Self.reserved(topic) {
             let file = queued.from.map(file(of:)) ?? "messages"
             problems[file] = Problem(file: file, message: "topic \(topic) is not a mod's to publish")
             return []
         }
+        guard send.to.hasPrefix("topic:"), let topic else { return [(send.to, send.message)] }
         topics[topic] = send.message
         return subscribers(of: topic, value: send.message)
+    }
+
+    private static func reserved(_ topic: String) -> Bool {
+        topic.hasPrefix("provider/") || topic.hasPrefix("app/")
     }
 
     private func subscribers(of topic: String, value: LuauValue) -> [(String, LuauValue)] {

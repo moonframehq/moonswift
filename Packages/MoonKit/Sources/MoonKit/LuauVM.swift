@@ -225,7 +225,9 @@ final class LuauVM {
             guard let value = try read(at: lua_gettop(state), depth: depth + 1, entries: &entries) else { continue }
             switch UInt32(lua_type(state, -2)) {
             case LUA_TSTRING.rawValue: fields[string(at: -2)] = value
-            case LUA_TNUMBER.rawValue: items.append((Int(lua_tonumberx(state, -2, nil)), value))
+            case LUA_TNUMBER.rawValue:
+                // A key such as `math.huge` or `0/0` is no list position.
+                if let position = LuauValue.integer(lua_tonumberx(state, -2, nil)) { items.append((position, value)) }
             default: break
             }
         }

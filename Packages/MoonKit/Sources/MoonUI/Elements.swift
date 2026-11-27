@@ -127,7 +127,7 @@ struct TextNode: View {
 
     var body: some View {
         text
-            .lineLimit(node.number("lines").map(Int.init) ?? (node.flag("truncate") ? 1 : nil))
+            .lineLimit(node.integer("lines", in: 1...10_000) ?? (node.flag("truncate") ? 1 : nil))
             .multilineTextAlignment(alignment)
             .contentTransition(node.flag("numeric") ? .numericText() : .identity)
             .modifier(Selectable(on: node.flag("selectable")))

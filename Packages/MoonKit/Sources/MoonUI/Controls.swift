@@ -183,7 +183,7 @@ private struct InputNode: View {
         default:
             bordered(
                 TextField(placeholder, text: $text, axis: node.flag("multiline") ? .vertical : .horizontal)
-                    .lineLimit(node.flag("multiline") ? 1...(node.number("lines").map(Int.init) ?? 6) : 1...1)
+                    .lineLimit(node.flag("multiline") ? 1...(node.integer("lines", in: 1...10_000) ?? 6) : 1...1)
             )
         }
     }

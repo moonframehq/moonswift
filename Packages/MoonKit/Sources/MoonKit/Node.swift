@@ -99,7 +99,7 @@ nonisolated public struct Node: Equatable, Sendable {
         }
         self.axis = axis
         self.stretched = stretched
-        line = fields.removeValue(forKey: "__line")?.number.map(Int.init)
+        line = fields.removeValue(forKey: "__line")?.integer
         guard let kind = Kind(rawValue: name), kind != .invalid else {
             self.kind = .invalid
             props = [:]
@@ -217,14 +217,21 @@ nonisolated extension Node {
     /// A function the view put in a prop, such as a list's `row`: its
     /// number, for `Workspace.part`.
     public func function(_ key: String) -> Int? {
-        props[key]?["__function"]?.number.map(Int.init)
+        props[key]?["__function"]?.integer
     }
 
     /// Lazy rows, as Moonframe's lists have them: `count` rows, each drawn
-    /// by `row(i)` only as it shows.
+    /// by `row(i)` only as it shows. At most 100,000, as in Moonframe.
+    public static let maxRows = 100_000
+
     public var lazyRows: (count: Int, function: Int)? {
         guard let function = function("row") else { return nil }
-        return (max(0, Int(number("count") ?? 0)), function)
+        return (min(max(0, props["count"]?.integer ?? 0), Self.maxRows), function)
+    }
+
+    /// A whole number prop, held to `range`.
+    public func integer(_ key: String, in range: ClosedRange<Int>) -> Int? {
+        props[key]?.integer.map { min(max($0, range.lowerBound), range.upperBound) }
     }
 }
 

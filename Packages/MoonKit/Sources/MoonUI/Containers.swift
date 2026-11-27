@@ -168,7 +168,7 @@ struct GridNode: View {
         if let minimum = node.number("min") {
             return [GridItem(.adaptive(minimum: minimum), spacing: node.spacing)]
         }
-        let count = max(1, Int(node.number("columns") ?? 2))
+        let count = node.integer("columns", in: 1...64) ?? 2
         return Array(repeating: GridItem(.flexible(), spacing: node.spacing), count: count)
     }
 }

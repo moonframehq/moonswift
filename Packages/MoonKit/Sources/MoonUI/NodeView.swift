@@ -256,15 +256,20 @@ struct LazyRows: View {
 
     @Environment(Workspace.self) private var workspace
 
-    private var keys: [LuauValue] { (0..<count).map { .number(Double($0 + 1)) } }
+    /// The rows' keys, their positions, made only for a list that edits.
+    private var editing: RowEditing? {
+        guard let owner, owner.props["move"] != nil || owner.props["delete"] != nil else { return nil }
+        return RowEditing(node: owner, keys: (0..<count).map { .number(Double($0 + 1)) }, send: send)
+    }
 
     var body: some View {
+        let editing = editing
         ForEach(1..<(count + 1), id: \.self) { index in
             PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
                 .tag(LuauValue.number(Double(index)))
         }
-        .onMove(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).move })
-        .onDelete(perform: owner.flatMap { RowEditing(node: $0, keys: keys, send: send).delete })
+        .onMove(perform: editing?.move)
+        .onDelete(perform: editing?.delete)
     }
 
     private func send(_ message: LuauValue) {

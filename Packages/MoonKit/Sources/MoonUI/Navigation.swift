@@ -107,7 +107,7 @@ struct TabsNode: View {
                 } label: {
                     Label(tab.node.string("text") ?? tab.id, systemImage: Icons.symbol(or: tab.node.string("icon"), default: "circle"))
                 }
-                .badge(tab.node.number("badge").map(Int.init) ?? 0)
+                .badge(tab.node.props["badge"]?.integer ?? 0)
             }
         }
         switch node.string("variant") {
