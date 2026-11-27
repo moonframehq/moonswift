@@ -238,6 +238,7 @@ These stay MoonSwift extras; a portable mod uses them only behind
 | `ui.secure`, `ui.editor` | `ui.input { secret = true }`, `ui.input { multiline = true }`, which MoonSwift reads too |
 | `ui.scroll`, `ui.grid`, `ui.fits` | `ui.column { scroll = true }`, `ui.row { wrap = true }`, the narrow layout |
 | `ui.share`, `ui.edit`, `ui.native` | nothing; `ui.view` for a native view of the app's |
+| A list's `edge` index | nothing: the desktop has a scroll bar |
 | Screen props (`toolbar`, `search`, `refresh`, `swipe`, `sheet`, `alert`) | a panel's `actions`, a `search-field`, a button, `context`, `ui.overlay` |
 
 The degradations on Moonframe's side are Luau components rather than host

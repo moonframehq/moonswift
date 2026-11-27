@@ -255,6 +255,7 @@ struct LazyRows: View {
     var owner: Node?
 
     @Environment(Workspace.self) private var workspace
+    @Environment(\.edgeJump) private var jump
 
     /// The rows' keys, their positions, made only for a list that edits.
     private var editing: RowEditing? {
@@ -265,8 +266,14 @@ struct LazyRows: View {
     var body: some View {
         let editing = editing
         ForEach(1..<(count + 1), id: \.self) { index in
-            PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
+            let row = PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
                 .tag(LuauValue.number(Double(index)))
+            // Only in a list with an edge index, which scrolls to it.
+            if jump != nil {
+                row.id(EdgePart.anchor(scope, row: index))
+            } else {
+                row
+            }
         }
         .onMove(perform: editing?.move)
         .onDelete(perform: editing?.delete)

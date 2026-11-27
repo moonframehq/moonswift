@@ -110,6 +110,10 @@ Anything can take `msg`, `class`, `style`, `grow` (`true`; here also `"x"`, `"y"
 props: `title`, `toolbar`, `search`, `refresh`, `swipe`, `context`, `badge`,
 `overlay`, `inset`, `transition`, `sheet`, `cover`, `popover`, `alert`, `confirm`.
 
+A list with `edge = true` has Sheprd's index down its trailing edge: each
+section with `edge = { letter = "R", dots = { "red", "green", ... } }` shows its
+letter and a dot per row, and a touch or a drag scrolls there.
+
 A list's `count` and `row = function(i)` draw rows only as they scroll in, as
 in Moonframe: a 10,000-row list costs what the visible ones do. A stack's
 `screen = function(route)` draws pushed routes the same way. `plans/ios-parity.md` maps
