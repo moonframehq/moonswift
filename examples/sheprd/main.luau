@@ -2,6 +2,7 @@
 -- what it needs, read from the `home` provider. Four tabs, as on iPhone.
 local parts = use "parts"
 local settings = use "settings"
+local workspaces = use "workspaces"
 
 type State = {
 	tab: string,
@@ -20,6 +21,10 @@ type State = {
 	haptics: boolean,
 	sounds: boolean,
 	keys: { string },
+	workspacesPath: { any },
+	foldedMachines: { [string]: boolean },
+	holdAlerts: { [string]: boolean },
+	forgetting: string?,
 }
 
 local order = { "blocked", "done", "working", "idle" }
@@ -279,6 +284,10 @@ return mod {
 			speak = state.speak or false,
 			haptics = if state.haptics == nil then true else state.haptics,
 			sounds = if state.sounds == nil then true else state.sounds,
+			workspacesPath = state.workspacesPath or {},
+			foldedMachines = state.foldedMachines or {},
+			holdAlerts = state.holdAlerts or {},
+			forgetting = nil,
 			keys = state.keys or { "esc", "tab", "ctrl", "↑", "↓", "←", "→", "|", "~", "/" },
 		}
 	end,
@@ -292,6 +301,11 @@ return mod {
 				state.closing = nil
 			elseif msg == "allRead" then
 				return state, { { to = "provider:home", msg = { readAll = true } } }
+			elseif msg == "foldMachines" then
+				local any = next(state.foldedMachines) ~= nil
+				state.foldedMachines = any and {} or { Studio = true, ["MacBook Air"] = true }
+			elseif msg == "keepMachine" then
+				state.forgetting = nil
 			elseif msg == "tryHaptic" then
 				return state, { { to = "provider:system", msg = { haptic = "success" } } }
 			end
@@ -307,6 +321,14 @@ return mod {
 			state.sort = msg.value
 		elseif msg.msg == "unreadOnly" then
 			state.unreadOnly = msg.value
+		elseif msg.foldMachine then
+			state.foldedMachines[msg.foldMachine] = not state.foldedMachines[msg.foldMachine] or nil
+		elseif msg.forgetAsk then
+			state.forgetting = msg.forgetAsk
+		elseif msg.hold then
+			state.holdAlerts[msg.hold] = msg.value
+		elseif msg.msg == "workspacesPath" then
+			state.workspacesPath = msg.value
 		elseif msg.msg == "settingsPath" then
 			state.settingsPath = msg.value
 		elseif msg.msg == "moveKey" then
@@ -367,7 +389,12 @@ return mod {
 			selection = state.tab,
 			change = "tab",
 			ui.tab { "Home", icon = "house", key = "home", badge = app.home.waiting, home(state, app) },
-			ui.tab { "Workspaces", icon = "square.stack.3d.up", key = "workspaces", soon("Workspaces", "square.stack.3d.up") },
+			ui.tab {
+				"Workspaces",
+				icon = "square.stack.3d.up",
+				key = "workspaces",
+				ui.stack { path = state.workspacesPath, change = "workspacesPath", screen = "screen", workspaces.view(state, app) },
+			},
 			ui.tab { "PRs", icon = "arrow.triangle.pull", key = "prs", soon("Pull Requests", "arrow.triangle.pull") },
 			ui.tab {
 				"Settings",
@@ -393,6 +420,15 @@ return mod {
 		screen = function(state: State, route, app)
 			if route.page then
 				return settings.page(state, route.page)
+			end
+			if route.workspace then
+				return ui.unavailable {
+					"Workspace",
+					icon = "square.stack.3d.up",
+					description = "The workspace screen is next.",
+					title = route.workspace,
+					titleMode = "inline",
+				}
 			end
 			local chat = byKey(app)[route.chat]
 			return ui.unavailable {

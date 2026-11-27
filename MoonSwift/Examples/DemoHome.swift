@@ -91,8 +91,50 @@ final class DemoHome: Provider {
         publish()
     }
 
+    /// The computers, their repositories and workspaces, as Workspaces shows
+    /// them: what Sheprd's demo has.
+    private var machines: LuauValue {
+        func workspace(
+            _ key: String, label: String, branch: String, own: Bool, counts: String, status: String,
+            uncommitted: Bool = false, pr: Int? = nil, unopened: Bool = false
+        ) -> LuauValue {
+            var fields: [String: LuauValue] = [
+                "key": .string(key), "label": .string(label), "branch": .string(branch), "own": .bool(own),
+                "counts": .string(counts), "status": .string(status), "uncommitted": .bool(uncommitted),
+                "unopened": .bool(unopened),
+            ]
+            if let pr { fields["pr"] = .fields(["number": .number(Double(pr)), "tone": .string("waiting")]) }
+            return .fields(fields)
+        }
+        let waiting = Double(chats.filter { $0.question != nil }.count)
+        return .table(array: [
+            .fields([
+                "name": .string("Studio"), "waiting": .number(waiting), "cpu": .number(38), "memory": .number(54),
+                "repositories": .table(array: [.fields([
+                    "label": .string("forecast"),
+                    "workspaces": .table(array: [
+                        workspace("w1", label: "forecast", branch: "main", own: true, counts: "2 agents · 1 terminal",
+                                  status: waiting > 0 ? "blocked" : "idle", pr: 412),
+                        workspace("w4", label: "chart legend", branch: "feat/chart-legend", own: false, counts: "1 agent",
+                                  status: "working", uncommitted: true, unopened: true),
+                    ], fields: [:]),
+                ])], fields: [:]),
+            ]),
+            .fields([
+                "name": .string("MacBook Air"), "waiting": .number(0), "cpu": .number(12), "memory": .number(41),
+                "repositories": .table(array: [.fields([
+                    "label": .string("website"),
+                    "workspaces": .table(array: [
+                        workspace("w5", label: "website", branch: "main", own: true, counts: "1 agent", status: "idle"),
+                    ], fields: [:]),
+                ])], fields: [:]),
+            ]),
+        ], fields: [:])
+    }
+
     private func publish() {
         link?.publish(.fields([
+            "machines": machines,
             "chats": .table(array: chats.map(\.value), fields: [:]),
             "waiting": .number(Double(chats.filter { $0.question != nil }.count)),
         ]))

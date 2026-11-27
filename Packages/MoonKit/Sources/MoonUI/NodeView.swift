@@ -346,7 +346,15 @@ private struct Box: ViewModifier {
             .padding(EdgeInsets(style.margin))
     }
 
-    private var frameAlignment: Alignment { .topLeading }
+    /// Where the content sits in a box bigger than it: by the column's or
+    /// row's `align`, from the top leading corner otherwise.
+    private var frameAlignment: Alignment {
+        switch node.kind {
+        case .column: Alignment(horizontal: node.horizontalAlignment, vertical: .top)
+        case .row: Alignment(horizontal: .leading, vertical: node.verticalAlignment)
+        default: .topLeading
+        }
+    }
 }
 
 /// A color only when one is set: otherwise the system's own styling stays,

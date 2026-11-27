@@ -298,7 +298,11 @@ struct SelfDrive {
         // The editor scrolls once the panel has opened, which takes longer on a
         // busy machine: wait for it rather than sample once.
         do {
-            try await until("line \(line) on screen in the editor", timeout: .seconds(3)) { lineIsVisible(line, in: text) }
+            // Found again each time: SwiftUI may replace the editor's view.
+            try await until("line \(line) on screen in the editor", timeout: .seconds(7)) {
+                text = try? editor(in: window().contentView?.superview)
+                return lineIsVisible(line, in: text)
+            }
         } catch {
             throw Failure(message: "line \(line) should be on screen in the editor: \(lineReport(line, in: text))")
         }

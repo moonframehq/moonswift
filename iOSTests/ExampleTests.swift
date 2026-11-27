@@ -47,6 +47,29 @@ final class ExampleTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["The chat screen is next."].waitForExistence(timeout: 5))
     }
 
+    func testWorkspacesFoldAndOfferActions() {
+        app.tabBars.buttons["Workspaces"].tap()
+        XCTAssertTrue(app.staticTexts["chart legend"].waitForExistence(timeout: 5))
+        shot("workspaces")
+
+        // A computer's header folds its repositories away.
+        app.staticTexts["Studio"].tap()
+        XCTAssertTrue(app.staticTexts["chart legend"].waitForNonExistence(timeout: 5))
+        app.staticTexts["Studio"].tap()
+        XCTAssertTrue(app.staticTexts["chart legend"].waitForExistence(timeout: 5))
+
+        // Its menu holds a toggle and asks before forgetting.
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'More' OR label CONTAINS 'ellipsis'")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["Forget…"].waitForExistence(timeout: 5))
+        shot("workspaces-menu")
+        app.buttons["Forget…"].tap()
+        XCTAssertTrue(app.buttons["Forget"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Forget"].firstMatch.tap()
+
+        app.staticTexts["chart legend"].tap()
+        XCTAssertTrue(app.staticTexts["The workspace screen is next."].waitForExistence(timeout: 5))
+    }
+
     func testSettingsPagesAndAppearance() {
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.staticTexts["Computers"].waitForExistence(timeout: 5))

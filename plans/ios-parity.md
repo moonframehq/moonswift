@@ -216,7 +216,11 @@ measure on a device.
    `docs/parity/home-dark.png`. Same bars, search, folding sections, rows,
    pills, badges, answer card, timer and tab badge; the agent tiles use SF
    Symbols where Sheprd has brand marks. `just example sheprd` runs it.
-9. ☐ Next: the Workspaces and PRs tabs, the chat screen with `ui.native`
+9. ✅ Workspaces rebuilt: computer headers with load gauges, fold and an
+   actions menu with a toggle and a confirm, repository sections with letter
+   avatars, workspace rows with status marks, uncommitted and PR pills;
+   `docs/parity/workspaces-light.png`.
+10. ☐ Next: the PRs tab, the chat screen with `ui.native`
    markdown and composer, hitch ratio on a device.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.

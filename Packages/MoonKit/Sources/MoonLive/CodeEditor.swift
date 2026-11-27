@@ -46,11 +46,11 @@ struct CodeEditor: NSViewRepresentable {
         let moved = context.coordinator.line != line
         if replaced || moved {
             context.coordinator.line = line
-            highlight(in: view)
+            highlight(in: view, coordinator: context.coordinator)
         }
     }
 
-    private func highlight(in view: NSTextView) {
+    private func highlight(in view: NSTextView, coordinator: Coordinator) {
         guard let manager = view.layoutManager, let container = view.textContainer else { return }
         let source = view.string as NSString
         manager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: source.length))
@@ -61,14 +61,22 @@ struct CodeEditor: NSViewRepresentable {
         )
         // Once the panel has finished opening and the text is laid out: until
         // then the editor isn't its final size, and the scroll wouldn't hold.
-        // Tried until it holds, as a busy machine may take longer.
-        Task { @MainActor in
+        // Tried until it holds, as a busy machine may take longer. A newer
+        // highlight cancels this one, or the two fight over where to scroll.
+        coordinator.scroll?.cancel()
+        coordinator.scroll = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(260))
-            for _ in 0..<20 {
+            for _ in 0..<60 where !Task.isCancelled {
+                // Laid out isn't sized: until the text view has grown to its
+                // text, there is nothing to scroll, and the scroll is lost.
                 manager.ensureLayout(for: container)
-                view.scrollRangeToVisible(target)
+                let height = manager.usedRect(for: container).height + view.textContainerInset.height * 2
+                if view.frame.height < height { view.setFrameSize(NSSize(width: view.frame.width, height: height)) }
                 let glyphs = manager.glyphRange(forCharacterRange: target, actualCharacterRange: nil)
-                if view.visibleRect.contains(manager.boundingRect(forGlyphRange: glyphs, in: container)) { break }
+                var rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                rect.origin.y += view.textContainerOrigin.y
+                view.scrollToVisible(rect.insetBy(dx: 0, dy: -24))
+                if view.visibleRect.contains(rect) { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
@@ -77,6 +85,7 @@ struct CodeEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         let text: Binding<String>
         var line: Int?
+        var scroll: Task<Void, Never>?
 
         init(text: Binding<String>) {
             self.text = text
@@ -119,11 +128,11 @@ struct CodeEditor: UIViewRepresentable {
         let moved = context.coordinator.line != line
         if replaced || moved {
             context.coordinator.line = line
-            highlight(in: view)
+            highlight(in: view, coordinator: context.coordinator)
         }
     }
 
-    private func highlight(in view: UITextView) {
+    private func highlight(in view: UITextView, coordinator: Coordinator) {
         let storage = view.textStorage
         let whole = NSRange(location: 0, length: storage.length)
         storage.removeAttribute(.backgroundColor, range: whole)
@@ -131,15 +140,17 @@ struct CodeEditor: UIViewRepresentable {
         guard let line, line > 0 else { return }
         let target = range(ofLine: line, in: storage.string as NSString)
         storage.addAttribute(.backgroundColor, value: UIColor.tintColor.withAlphaComponent(0.22), range: target)
-        Task { @MainActor in
+        coordinator.scroll?.cancel()
+        coordinator.scroll = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(260))
-            view.scrollRangeToVisible(target)
+            if !Task.isCancelled { view.scrollRangeToVisible(target) }
         }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         let text: Binding<String>
         var line: Int?
+        var scroll: Task<Void, Never>?
 
         init(text: Binding<String>) {
             self.text = text

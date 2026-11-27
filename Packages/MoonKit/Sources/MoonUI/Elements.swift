@@ -60,7 +60,7 @@ extension NodeView {
         case .input, .secure, .editor, .toggle, .slider, .stepper, .picker:
             ControlNode(node: node, identifier: identifier, send: send)
         case .menu:
-            MenuNode(node: node, scope: scope, identifier: identifier, send: send)
+            MenuNode(node: node, scope: scope, identifier: identifier, send: send).font(font(style))
         case .native:
             NativeNode(node: node, send: send)
         case .invalid:
