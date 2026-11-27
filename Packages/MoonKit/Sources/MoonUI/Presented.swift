@@ -9,17 +9,35 @@ import SwiftUI
 /// The mod keeps `open`; when the system closes one (a swipe down, a tap
 /// outside, any of its buttons) the view sends `dismiss`.
 struct Presented: ViewModifier {
+    var on = true
     let node: Node
     let scope: Scope
     let send: (LuauValue) -> Void
 
     func body(content: Content) -> some View {
-        content
-            .modifier(SheetModifier(overlay: node.overlay("sheet"), scope: scope.child("sheet"), send: send))
-            .modifier(CoverModifier(overlay: node.overlay("cover"), scope: scope.child("cover"), send: send))
-            .modifier(PopoverModifier(overlay: node.overlay("popover"), scope: scope.child("popover"), send: send))
-            .modifier(AlertModifier(overlay: node.overlay("alert"), scope: scope.child("alert"), send: send))
-            .modifier(ConfirmModifier(overlay: node.overlay("confirm"), scope: scope.child("confirm"), send: send))
+        if on { presented(content) } else { content }
+    }
+
+    /// Only the presentations the element sets, each erased: one alert
+    /// doesn't set up sheets, covers, popovers and dialogs too.
+    private func presented(_ content: Content) -> AnyView {
+        var view = AnyView(content)
+        if let sheet = node.overlay("sheet") {
+            view = AnyView(view.modifier(SheetModifier(overlay: sheet, scope: scope.child("sheet"), send: send)))
+        }
+        if let cover = node.overlay("cover") {
+            view = AnyView(view.modifier(CoverModifier(overlay: cover, scope: scope.child("cover"), send: send)))
+        }
+        if let popover = node.overlay("popover") {
+            view = AnyView(view.modifier(PopoverModifier(overlay: popover, scope: scope.child("popover"), send: send)))
+        }
+        if let alert = node.overlay("alert") {
+            view = AnyView(view.modifier(AlertModifier(overlay: alert, scope: scope.child("alert"), send: send)))
+        }
+        if let confirm = node.overlay("confirm") {
+            view = AnyView(view.modifier(ConfirmModifier(overlay: confirm, scope: scope.child("confirm"), send: send)))
+        }
+        return view
     }
 }
 

@@ -91,6 +91,11 @@ ios-bench device="iPhone 17 Pro": generate
         -only-testing:MoonSwiftBetaUITests/BenchTests test
     ./scripts/bench-report.sh build/bench.xcresult
 
+# Benchmark B6: Sheprd's Pull Requests tab, 25-element rows in sections,
+# scrolled at 3000 pt/s, in Luau and in SwiftUI, on a simulator.
+prs-bench device="iPhone 17 Pro" runs="5":
+    ./scripts/prs-bench.sh "{{device}}" {{runs}}
+
 # Prove the App Store build has no live editing in it.
 store-audit: generate
     ./scripts/store-audit.sh

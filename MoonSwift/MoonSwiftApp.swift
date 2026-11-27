@@ -43,6 +43,11 @@ struct MoonSwiftApp: App {
         switch ProcessInfo.processInfo.environment["MOONSWIFT_BENCH"] {
         case "swiftui": BenchList()
         case "luau": MoonCanvas().environment(workspace).task { workspace.reload() }
+        #if os(iOS)
+        // Benchmark B6: Sheprd's Pull Requests tab. See `just prs-bench`.
+        case "prs-swiftui": PullRequestsBench(engine: "swiftui")
+        case "prs-luau": PullRequestsBench(engine: "luau")
+        #endif
         default:
             // The app as the store shows it, for tests and screenshots.
             if ProcessInfo.processInfo.environment["MOONSWIFT_PLAIN"] != nil {
