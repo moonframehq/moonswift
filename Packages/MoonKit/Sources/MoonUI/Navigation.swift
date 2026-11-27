@@ -56,7 +56,9 @@ struct LinkNode: View {
 
     var body: some View {
         if let route = node.props["route"] {
-            NavigationLink(value: route) { label }
+            // One view: a label that branches would be a list of views to
+            // the row it is in, built while the row is measured.
+            NavigationLink(value: route) { _UnaryViewAdaptor(label) }
                 .accessibilityIdentifier(identifier)
         } else if let url = node.string("url").flatMap(URL.init(string:)), Self.schemes.contains(url.scheme?.lowercased() ?? "") {
             // Only on a tap, and to the browser or mail: what it carries is
@@ -79,9 +81,13 @@ struct LinkNode: View {
         } else {
             // One view, not a list of them: inside a list row, a ForEach
             // would be read as rows of its own.
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Identified.of(node.children)) { child in
-                    NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+            if Fixed.fits(node) {
+                FixedColumn(alignment: .leading, spacing: 0, children: node.children, scope: scope)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Identified.of(node.children)) { child in
+                        NodeView.one(child.node, scope.child(child.id))
+                    }
                 }
             }
         }

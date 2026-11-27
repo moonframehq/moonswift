@@ -136,6 +136,7 @@ cache and message index. Luau sees their outcome through providers.
 | B3 | Rows after a state change | headless: 30 visible rows redrawn after an update | under 1 ms optimized; cached rows free |
 | B4 | Cold start | headless: load and first view of a 10k-item mod and of the bundled app; on device, `XCTApplicationLaunchMetric` | under 10 ms headless; launch within 50 ms of SwiftUI's |
 | B5 | Memory | the VM's bytes for 10k items; on device `XCTMemoryMetric` against SwiftUI | under 8 MB headless |
+| B6 | Scroll a real screen's rows | `just prs-bench`: Sheprd's Pull Requests tab (`examples/prs`, 25-element rows with a context menu, two sections of 50) against the same tab in SwiftUI, opened, then scrolled end to end 4 times at 3000 pt/s timing every frame (a hitch is a frame over 1.5× its target) | hitched frames and first frame within 10% of SwiftUI's, memory within 15% |
 
 Headless results, Apple silicon laptop, `-c release` (2026-11-26):
 
@@ -188,6 +189,42 @@ The simulator reports no hitch ratio; that needs a device. The memory was
 them. Row traits are now always applied, with the system's defaults when
 unset, outside a single-view wrapper. The remaining 20 MB is the Luau state,
 the keys and the row cache.
+
+B6, Sheprd's Pull Requests tab (sheprd-labs/sheprd#1715), is where B1 hid
+the cost: its rows are about 25 elements, not 6, and Luau hitched 138 frames
+a run to SwiftUI's 1. The time was all SwiftUI building and measuring
+MoonUI's views; the Luau VM barely showed. What it took, as rules for
+MoonUI:
+
+- **No wrapper an element doesn't use.** Every element had padding, two
+  frames and a margin, even unset: four layouts each, which a stack asks
+  again and again. `Look` resolves an element's style once and says which
+  parts of a box it can ever use, `:hover` and `:selected` rules included,
+  so the structure holds as they come and go.
+- **Few branches.** Each `if` in a modifier is a part SwiftUI builds and
+  tracks on its own; a row made hundreds. The common elements (a plain
+  text or icon, a row or column with a gap, padding and a color) are one
+  concrete view each, chosen in Swift (`Fast.swift`).
+- **Fixed children.** A `ForEach` in every row and column makes each child
+  an item with its own graph and transition. Up to five unkeyed, stateless
+  children are fixed views instead (`FixedStack.swift`), one case per
+  pattern of spacers, as a stack sees a spacer only bare. A stack built
+  through `Layout` (`HStackLayout { }`) always takes the dynamic way; `HStack`
+  doesn't.
+- **One view per element, said in the type.** `_UnaryViewAdaptor` tells a
+  stack or a list a child is one view, so it doesn't build the child to ask.
+- **A badge only where there is one.** `.badge(nil)` still lays every row
+  out beside a badge. It now sits inside the row's single view: outside, a
+  branch makes the list draw every row to read its traits (a test, `List
+  laziness`, holds that).
+- **Erase per case.** A `@ViewBuilder` switch is one type holding every
+  branch, set up in full the first time; `AnyView` per case sets up only
+  the kinds a screen shows, which matters for the first frame.
+
+Results, iPhone 17 Pro simulator, iOS 27.2 (60 Hz), 5 runs each, medians:
+see the pull request that added B6. Hitches now match SwiftUI's. The first
+frame still costs more on a cold open (warm, 72 ms against 61): what's left
+is SwiftUI setting up MoonUI's view types and the list's sections once.
 
 Still to do for B1: cache stylesheet resolution per node digest; keep the
 inspector's geometry tracking out of the measured build (it's beta only);

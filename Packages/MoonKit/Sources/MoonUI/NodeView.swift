@@ -95,12 +95,11 @@ struct PartView: View {
 
     var body: some View {
         let node = workspace.part(function, key: key, of: scope.mod)
-        // Exactly one view, whatever the element: a lazy list must know
-        // each row is one view without asking, or it builds them all.
-        VStack(spacing: 0) {
-            NodeView(node: node, scope: scope).equatable()
-        }
-        .modifier(RowTraits(node: node, scope: scope))
+        // Exactly one view, whatever the element, a region too: a lazy list
+        // must know each row is one view without asking, or it builds them
+        // all, and a branch here would make it ask.
+        RowView(node: node, scope: scope)
+            .modifier(RowTraits(node: node, scope: scope))
     }
 }
 
@@ -123,7 +122,8 @@ struct NodeView: View, Equatable {
     @Environment(Workspace.self) var workspace
     @Environment(\.elementTracker) private var tracker
     @Environment(\.colorScheme) private var scheme
-    @State private var hovered = false
+    /// Set by `Hovering`, for the few elements a `:hover` rule styles.
+    var hover: Binding<Bool>?
 
     nonisolated static func == (lhs: NodeView, rhs: NodeView) -> Bool {
         lhs.node.digest == rhs.node.digest && lhs.scope == rhs.scope
@@ -131,7 +131,41 @@ struct NodeView: View, Equatable {
 
     var dark: Bool { scheme == .dark }
 
-    var body: some View {
+    /// The element as exactly one view. SwiftUI otherwise can't tell from
+    /// the type how many views an element makes, so a stack builds each
+    /// child's list of views to find out, on every row that scrolls in.
+    /// Regions, which place a view per mod, stay many.
+    @ViewBuilder
+    static func one(_ node: Node, _ scope: Scope) -> some View {
+        if node.kind == .region {
+            NodeView(node: node, scope: scope).equatable()
+        } else {
+            _UnaryViewAdaptor(NodeView(node: node, scope: scope).equatable())
+        }
+    }
+
+    /// One erased view, chosen here in Swift: the common elements are a
+    /// concrete view each, so SwiftUI has no branch to track for them.
+    var body: AnyView {
+        if Self.boxed.contains(node.kind), hover == nil {
+            let look = Look(node: node, sheet: sheet, dark: dark, hovered: false)
+            if !look.hovers, isFlat(look), let kind = fast(look) {
+                return erased(kind, look)
+            }
+        }
+        return AnyView(general)
+    }
+
+    /// The elements drawn in a box of their own, not placed bare.
+    private static let boxed: Set<Node.Kind> = Set(Node.Kind.allCases).subtracting([
+        .region, .mount, .spacer, .stack, .tabs, .tab, .split, .list, .form, .section, .hsplit, .vsplit,
+    ])
+
+    /// The stylesheet of the element's mod.
+    var sheet: Stylesheet { workspace.stylesheet(for: scope.mod) }
+
+    @ViewBuilder
+    private var general: some View {
         switch node.kind {
         // These place other mods' trees and have no box of their own.
         case .region:
@@ -155,7 +189,20 @@ struct NodeView: View, Equatable {
                 .modifier(Decorations(node: node, scope: scope, send: send))
                 .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
         default:
-            styled(workspace.stylesheet(for: scope.mod).resolve(node, hovered: hovered))
+            let look = Look(node: node, sheet: sheet, dark: dark, hovered: hover?.wrappedValue ?? false)
+            if look.hovers, hover == nil {
+                Hovering(node: node, scope: scope)
+            } else if isFlat(look) {
+                flat(look)
+            } else if isFlat(look, menu: true) {
+                // A row's root with its context menu: the box, tap and
+                // decorations it doesn't use stay out of it.
+                flat(look).contextMenu {
+                    MenuItems(nodes: node.elements("context"), scope: scope.child("context"), send: send)
+                }
+            } else {
+                styled(look)
+            }
         }
     }
 
@@ -165,22 +212,48 @@ struct NodeView: View, Equatable {
         }
     }
 
+    /// Most elements of a row: a text or icon with a font and a color, a
+    /// stack with a gap and padding. They take the short way, one static
+    /// chain each: every optional modifier is a branch SwiftUI tracks on
+    /// its own, and a row of 25 elements made hundreds of them.
+    private func isFlat(_ look: Look, menu: Bool = false) -> Bool {
+        look.uses.isSubset(of: [.padding, .stretch]) && !look.hovers && tracker == nil && !Tap.used(by: node)
+            && (menu ? Decorations.menuOnly(node) : !Decorations.used(by: node))
+    }
+
+    /// Branches nested straight in each other are one to SwiftUI.
+    @ViewBuilder
+    private func flat(_ look: Look) -> some View {
+        let padded = look.uses.contains(.padding), stretched = look.uses.contains(.stretch)
+        let content = content(look.style)
+        let maxWidth: CGFloat? = look.wide ? .infinity : nil, maxHeight: CGFloat? = look.tall ? .infinity : nil
+        if padded, stretched {
+            inked(look, content.padding(look.padding).frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: look.alignment))
+        } else if padded {
+            inked(look, content.padding(look.padding))
+        } else if stretched {
+            inked(look, content.frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: look.alignment))
+        } else {
+            inked(look, content)
+        }
+    }
+
+    @ViewBuilder
+    private func inked(_ look: Look, _ view: some View) -> some View {
+        if let color = look.color { view.foregroundStyle(color) } else { view }
+    }
+
     var crumb: Crumb {
         Crumb(mod: scope.mod, path: scope.path, label: node.label)
     }
 
-    private func styled(_ style: StyleRule) -> some View {
-        let sheet = workspace.stylesheet(for: scope.mod)
-        return content(style)
-            .modifier(Box(style: style, node: node, sheet: sheet, dark: dark, fills: fills))
+    private func styled(_ look: Look) -> some View {
+        content(look.style)
+            .modifier(Box(look: look))
             .modifier(Tap(node: node, send: send))
-            .modifier(Hover(on: sheet.hovers(Stylesheet.selectors(of: node)), hovered: $hovered))
+            .modifier(Hover(binding: hover))
             .modifier(Decorations(node: node, scope: scope, send: send))
             .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
-    }
-
-    private var fills: Bool {
-        node.growsWide || node.kind == .panel
     }
 
     /// Every element is findable by `id`, or by where it sits.
@@ -189,7 +262,7 @@ struct NodeView: View, Equatable {
     }
 
     func font(_ style: StyleRule) -> Font? {
-        Font(style)
+        Fonts.font(style)
     }
 
     /// Controls report to their own mod unless `to` names another.
@@ -217,7 +290,7 @@ struct Children: View {
             let children = Identified.of(node.children)
             let keys = children.map { $0.node.props["key"] ?? .string($0.id) }
             ForEach(children) { child in
-                NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                RowView(node: child.node, scope: scope.child(child.id))
                     .modifier(RowTraits(node: child.node, scope: scope.child(child.id)))
                     .tag(child.node.props["key"] ?? .string(child.id))
             }
@@ -234,7 +307,7 @@ struct Children: View {
                 if child.node.kind == .spacer {
                     Spacer(minLength: child.node.number("min").map { CGFloat($0) } ?? 0)
                 } else {
-                    NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                    NodeView.one(child.node, scope.child(child.id))
                 }
             }
             if justify == "center" { Spacer(minLength: 0) }
@@ -329,129 +402,26 @@ struct Identified: Identifiable {
     }
 }
 
-/// The box rules draw: padding, size, colors, corners, glass and shadow,
-/// each only if set, so a plain element costs no extra views.
-private struct Box: ViewModifier {
-    let style: StyleRule
+/// Keeps whether the pointer is over an element a `:hover` rule styles:
+/// state no other element pays for.
+private struct Hovering: View {
     let node: Node
-    let sheet: Stylesheet
-    let dark: Bool
-    let fills: Bool
+    let scope: Scope
 
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: style.radius ?? 0, style: .continuous)
-        content
-            .padding(EdgeInsets(style.padding))
-            .frame(
-                width: node.number("width").map { CGFloat($0) },
-                height: node.number("height").map { CGFloat($0) },
-                alignment: frameAlignment
-            )
-            .frame(
-                maxWidth: fills ? .infinity : nil,
-                maxHeight: node.growsTall ? .infinity : nil,
-                alignment: frameAlignment
-            )
-            .modifier(Ink(color: sheet.paint(style.color, dark: dark)))
-            .background {
-                if let background = sheet.paint(style.background, dark: dark) {
-                    shape.fill(background)
-                }
-            }
-            .overlay(alignment: edgeAlignment) {
-                if let edges = style.edges, edges != "none",
-                   let border = sheet.paint(style.border ?? "border", dark: dark) {
-                    let width = style.borderWidth ?? 1
-                    switch edges {
-                    case "top", "bottom": border.frame(height: width)
-                    case "left", "right": border.frame(width: width)
-                    default: shape.strokeBorder(border, lineWidth: width)
-                    }
-                }
-            }
-            .modifier(Glass(on: style.glass ?? false, shape: shape))
-            .modifier(Shadow(radius: style.shadow))
-            .opacity(style.opacity ?? 1)
-            .modifier(Turn(degrees: node.number("rotate")))
-            .modifier(Fixed(axis: node.props["fixed"]))
-            .padding(EdgeInsets(style.margin))
-    }
+    @State private var hovered = false
 
-    /// Where a one-edge border goes.
-    private var edgeAlignment: Alignment {
-        switch style.edges {
-        case "top": .top
-        case "bottom": .bottom
-        case "left": .leading
-        case "right": .trailing
-        default: .center
-        }
-    }
-
-    /// Where the content sits in a box bigger than it: by the column's or
-    /// row's `align`, from the top leading corner otherwise.
-    private var frameAlignment: Alignment {
-        switch node.kind {
-        case .column: Alignment(horizontal: node.horizontalAlignment, vertical: .top)
-        case .row: Alignment(horizontal: .leading, vertical: node.verticalAlignment)
-        default: .topLeading
-        }
-    }
-}
-
-/// A color only when one is set: otherwise the system's own styling stays,
-/// as a labeled row's secondary value.
-private struct Ink: ViewModifier {
-    let color: Color?
-
-    func body(content: Content) -> some View {
-        if let color { content.foregroundStyle(color) } else { content }
-    }
-}
-
-/// `fixed = "y"` (or `"x"`, or `true` for both): the element keeps its ideal
-/// size that way, as a row whose side bar should be as tall as its text.
-private struct Fixed: ViewModifier {
-    let axis: LuauValue?
-
-    func body(content: Content) -> some View {
-        switch axis {
-        case .string("y")?: content.fixedSize(horizontal: false, vertical: true)
-        case .string("x")?: content.fixedSize(horizontal: true, vertical: false)
-        case .bool(true)?: content.fixedSize()
-        default: content
-        }
-    }
-}
-
-private struct Turn: ViewModifier {
-    let degrees: Double?
-
-    func body(content: Content) -> some View {
-        if let degrees { content.rotationEffect(.degrees(degrees)) } else { content }
-    }
-}
-
-private struct Shadow: ViewModifier {
-    let radius: Double?
-
-    func body(content: Content) -> some View {
-        if let radius {
-            content.shadow(color: .black.opacity(0.18), radius: radius, y: radius / 3)
-        } else {
-            content
-        }
+    var body: some View {
+        NodeView(node: node, scope: scope, hover: $hovered)
     }
 }
 
 /// Follows the pointer only where a `:hover` rule could use it.
 private struct Hover: ViewModifier {
-    let on: Bool
-    @Binding var hovered: Bool
+    let binding: Binding<Bool>?
 
     func body(content: Content) -> some View {
-        if on {
-            content.onHover { hovered = $0 }
+        if let binding {
+            content.onHover { binding.wrappedValue = $0 }
         } else {
             content
         }
@@ -478,24 +448,15 @@ private struct Tracked: ViewModifier {
     }
 }
 
-private struct Glass<S: Shape>: ViewModifier {
-    let on: Bool
-    let shape: S
-
-    func body(content: Content) -> some View {
-        if on {
-            content.glassEffect(.regular, in: shape)
-        } else {
-            content
-        }
-    }
-}
-
 /// `msg` on anything but a control makes it a button: clickable from an
 /// inactive window, and reachable by keyboard and VoiceOver.
 private struct Tap: ViewModifier {
     let node: Node
     let send: (LuauValue) -> Void
+
+    static func used(by node: Node) -> Bool {
+        (node.props["msg"] != nil && node.kind != .button) || node.props["tooltip"] != nil
+    }
 
     func body(content: Content) -> some View {
         if let message = node.props["msg"], node.kind != .button {
