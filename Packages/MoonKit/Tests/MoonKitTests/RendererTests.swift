@@ -64,3 +64,38 @@ struct RendererTests {
         #endif
     }
 }
+
+@Suite("Markdown")
+struct MarkdownTests {
+    @Test func blocksAreSplitAsGitHubReadsThem() {
+        let text = """
+        ## Why it was stale
+
+        The widget's timeline ends at midnight, so
+        it only reloads when asked.
+
+        - First item
+        continues here.
+        - Second item
+        1. One
+        2. Two
+
+        ```
+        let x = 1
+        ```
+        > A quote
+        """
+        #expect(MarkdownBlock.parse(text) == [
+            .heading(level: 2, text: "Why it was stale"),
+            .paragraph("The widget's timeline ends at midnight, so it only reloads when asked."),
+            .bullets(["First item continues here.", "Second item"]),
+            .numbered(["One", "Two"]),
+            .code("let x = 1"),
+            .quote("A quote"),
+        ])
+    }
+
+    @Test func anOpenCodeBlockStillShowsWhileItStreams() {
+        #expect(MarkdownBlock.parse("```\nlet") == [.code("let")])
+    }
+}

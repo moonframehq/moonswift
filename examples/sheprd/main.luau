@@ -3,6 +3,7 @@
 local parts = use "parts"
 local settings = use "settings"
 local workspaces = use "workspaces"
+local chat = use "chat"
 
 type State = {
 	tab: string,
@@ -25,6 +26,8 @@ type State = {
 	foldedMachines: { [string]: boolean },
 	holdAlerts: { [string]: boolean },
 	forgetting: string?,
+	draft: string,
+	sessionSheet: boolean,
 	prQuery: string,
 	prSort: string,
 }
@@ -286,6 +289,8 @@ return mod {
 			foldedMachines = state.foldedMachines or {},
 			holdAlerts = state.holdAlerts or {},
 			forgetting = nil,
+			draft = state.draft or "",
+			sessionSheet = false,
 			prQuery = state.prQuery or "",
 			prSort = state.prSort or "updated",
 			keys = state.keys or { "esc", "tab", "ctrl", "↑", "↓", "←", "→", "|", "~", "/" },
@@ -304,6 +309,12 @@ return mod {
 			elseif msg == "foldMachines" then
 				local any = next(state.foldedMachines) ~= nil
 				state.foldedMachines = any and {} or { Studio = true, ["MacBook Air"] = true }
+			elseif msg == "sessionSheet" then
+				state.sessionSheet = true
+			elseif msg == "closeSession" then
+				state.sessionSheet = false
+			elseif msg == "send" then
+				state.draft = ""
 			elseif msg == "openGitHub" then
 				-- Another tab, and the page in it: navigation is just state.
 				state.tab = "settings"
@@ -379,6 +390,7 @@ return mod {
 			state.folded[msg.fold] = not state.folded[msg.fold] or nil
 		elseif msg.asking then
 			state.closing = msg.asking
+			state.sessionSheet = false
 		elseif msg.read or msg.favorite or msg.answer or msg.close then
 			if msg.close then
 				state.closing = nil
@@ -463,14 +475,11 @@ return mod {
 					titleMode = "inline",
 				}
 			end
-			local chat = byKey(app)[route.chat]
-			return ui.unavailable {
-				chat and chat.title or "Gone",
-				icon = "bubble.left.and.text.bubble.right",
-				description = "The chat screen is next.",
-				title = chat and chat.title or "",
-				titleMode = "inline",
-			}
+			local conversation = byKey(app)[route.chat]
+			if not conversation then
+				return ui.unavailable { "This chat is gone", icon = "bubble.left.and.text.bubble.right" }
+			end
+			return chat.screen(state, route.chat, conversation, (app.home.transcripts or {})[route.chat] or {})
 		end,
 	},
 }

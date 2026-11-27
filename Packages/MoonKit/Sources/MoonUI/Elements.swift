@@ -39,6 +39,8 @@ extension NodeView {
             Divider()
         case .text:
             TextNode(node: node, identifier: identifier).font(font(style))
+        case .markdown:
+            MarkdownNode(node: node).font(font(style))
         case .label:
             LabelNode(node: node, scope: scope).font(font(style))
         case .badge:

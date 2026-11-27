@@ -42,9 +42,14 @@ final class ExampleTests: XCTestCase {
         app.buttons["Allow once"].tap()
         XCTAssertTrue(app.buttons["Allow once"].waitForNonExistence(timeout: 5))
 
-        // A row pushes its chat.
+        // A row pushes its chat, a markdown document under its prompt.
         app.staticTexts["Weather widget"].tap()
-        XCTAssertTrue(app.staticTexts["The chat screen is next."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Checked"].waitForExistence(timeout: 5))
+        shot("chat")
+        let composer = app.descendants(matching: .any).matching(identifier: "composer").firstMatch
+        composer.tap()
+        composer.typeText("Ship it")
+        shot("chat-typing")
     }
 
     func testWorkspacesFoldAndOfferActions() {

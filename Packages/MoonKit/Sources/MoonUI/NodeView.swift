@@ -343,6 +343,7 @@ private struct Box: ViewModifier {
             .modifier(Shadow(radius: style.shadow))
             .opacity(style.opacity ?? 1)
             .modifier(Turn(degrees: node.number("rotate")))
+            .modifier(Fixed(axis: node.props["fixed"]))
             .padding(EdgeInsets(style.margin))
     }
 
@@ -364,6 +365,21 @@ private struct Ink: ViewModifier {
 
     func body(content: Content) -> some View {
         if let color { content.foregroundStyle(color) } else { content }
+    }
+}
+
+/// `fixed = "y"` (or `"x"`, or `true` for both): the element keeps its ideal
+/// size that way, as a row whose side bar should be as tall as its text.
+private struct Fixed: ViewModifier {
+    let axis: LuauValue?
+
+    func body(content: Content) -> some View {
+        switch axis {
+        case .string("y")?: content.fixedSize(horizontal: false, vertical: true)
+        case .string("x")?: content.fixedSize(horizontal: true, vertical: false)
+        case .bool(true)?: content.fixedSize()
+        default: content
+        }
     }
 }
 

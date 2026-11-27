@@ -84,6 +84,7 @@ Status: ✅ built and tested, ◐ built, needs work, ☐ to do.
 | 27 | focus, onSubmit | 4 | `submit = msg`, `focus = true`, `blur = msg` | ✅ |
 | 28 | list row insets, backgrounds, separators | Home answer cards | `rowInsets = { top = 4 }`, `rowBackground = "clear"`, `separator = false` | ✅ |
 | 29 | section index | Workspaces | `index = "A"` on sections, `indexed = true` on the list | ✅ |
+| — | Markdown (Sheprd's MarkdownView) | Chat | `ui.markdown { text }`, native | ✅ |
 | 30 | symbolEffect, haptics | 7 + 17 | `effect = "pulse"`; `provider:system { haptic = "success" }` | ✅ |
 
 Fonts and colors: rules take `font` (a Dynamic Type style), `weight`,
@@ -224,7 +225,12 @@ measure on a device.
     menu and search; its button switches tab and pushes Settings › GitHub,
     as navigation is only state. `docs/parity/prs-light.png`. All four tabs
     now match the original.
-11. ☐ Next: the chat screen with `ui.native`
+11. ✅ The chat screen: a bottom-anchored document of turns, each prompt a
+    heading with an accent bar, answers in `ui.markdown` (native: headings,
+    lists, quotes, code, inline styles), the last prompt pinned in glass on
+    top, a principal title that opens a session sheet, and a glass composer
+    inset at the bottom; `docs/parity/chat-light.png`.
+12. ☐ Next: the chat screen with `ui.native`
    markdown and composer, hitch ratio on a device.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.

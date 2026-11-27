@@ -37,7 +37,7 @@ nonisolated public struct Node: Equatable, Sendable {
         // Navigation and lists.
         case stack, tabs, tab, split, list, section, form, link, disclosure
         // Content.
-        case text, label, labeled, badge, icon, image, progress, unavailable
+        case text, markdown, label, labeled, badge, icon, image, progress, unavailable
         // Controls.
         case button, input, secure, editor, toggle, slider, stepper, picker, menu, share, edit
         // The host's: other mods, and views the app registers natively.
@@ -118,7 +118,7 @@ nonisolated public struct Node: Equatable, Sendable {
     /// The text this element shows, if any.
     public var text: String? {
         switch kind {
-        case .text, .badge, .label, .link, .labeled: string("text")
+        case .text, .markdown, .badge, .label, .link, .labeled: string("text")
         case .share: string("label")
         case .button, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
         case .icon, .native: string("name")
