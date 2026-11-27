@@ -26,7 +26,7 @@ struct ModTests {
         let workspace = app.workspace()
         workspace.reload()
 
-        let tree = try #require(workspace.trees["main"])
+        let tree = try #require(workspace.trees["shell"])
         #expect(workspace.problems.isEmpty)
         #expect(tree.kind == .row)
         #expect(tree.line == 5)
@@ -39,10 +39,10 @@ struct ModTests {
         let workspace = app.workspace()
         workspace.reload()
 
-        workspace.send(.string("more"), to: "main")
-        workspace.send(.string("more"), to: "main")
+        workspace.send(.string("more"), to: "shell")
+        workspace.send(.string("more"), to: "shell")
 
-        #expect(workspace.trees["main"]?.text == "count 2")
+        #expect(workspace.trees["shell"]?.text == "count 2")
     }
 
     @Test func modsTalkThroughSendsAndTopics() throws {
@@ -67,7 +67,7 @@ struct ModTests {
         workspace.reload()
         #expect(workspace.mods(in: "left") == ["listener"])
 
-        workspace.send(.string("go"), to: "main")
+        workspace.send(.string("go"), to: "shell")
 
         #expect(workspace.trees["listener"]?.text == "hello")
     }
@@ -81,8 +81,8 @@ struct ModTests {
         workspace.reload()
 
         #expect(workspace.problems.isEmpty)
-        #expect(workspace.trees["main"]?.text == "new")
-        #expect(workspace.trees["main"]?.line == 3)
+        #expect(workspace.trees["shell"]?.text == "new")
+        #expect(workspace.trees["shell"]?.line == 3)
     }
 
     @Test func aBadElementIsAMarkNotABlankWindow() throws {
@@ -90,21 +90,21 @@ struct ModTests {
         let workspace = app.workspace()
         workspace.reload()
 
-        #expect(workspace.trees["main"]?.problems == ["no element named nope"])
-        #expect(workspace.trees["main"]?.children[1].text == "fine")
+        #expect(workspace.trees["shell"]?.problems == ["no element named nope"])
+        #expect(workspace.trees["shell"]?.children[1].text == "fine")
     }
 
     @Test func messagesThatAnswerEachOtherStop() throws {
         let app = try Sandbox(["main.luau": """
         return mod {
-            update = function(state, msg) return state, { { to = "main", msg = "again" } } end,
+            update = function(state, msg) return state, { { to = "shell", msg = "again" } } end,
             view = function() return ui.row {} end,
         }
         """])
         let workspace = app.workspace()
         workspace.reload()
 
-        workspace.send(.string("again"), to: "main")
+        workspace.send(.string("again"), to: "shell")
 
         #expect(workspace.problems["messages"] != nil)
     }
@@ -116,12 +116,12 @@ struct ReloadTests {
         let app = try Sandbox(["main.luau": counter])
         let workspace = app.workspace()
         workspace.reload()
-        workspace.send(.string("more"), to: "main")
+        workspace.send(.string("more"), to: "shell")
 
         try app.write(shell(#"return ui.text { "total " .. state.count }"#), to: "main.luau")
         workspace.reload()
 
-        #expect(workspace.trees["main"]?.text == "total 1")
+        #expect(workspace.trees["shell"]?.text == "total 1")
         #expect(workspace.reloads == 2)
     }
 
@@ -137,20 +137,20 @@ struct ReloadTests {
         let app = try Sandbox(["main.luau": counter])
         let workspace = app.workspace(limits: quick)
         workspace.reload()
-        workspace.send(.string("more"), to: "main")
+        workspace.send(.string("more"), to: "shell")
 
         try app.write(broken, to: "main.luau")
         workspace.reload()
-        #expect(workspace.trees["main"]?.text == "count 1")
-        #expect(workspace.problem(of: "main") != nil)
+        #expect(workspace.trees["shell"]?.text == "count 1")
+        #expect(workspace.problem(of: "shell") != nil)
 
-        workspace.send(.string("more"), to: "main")
-        #expect(workspace.trees["main"]?.text == "count 2")
+        workspace.send(.string("more"), to: "shell")
+        #expect(workspace.trees["shell"]?.text == "count 2")
 
         try app.write(counter, to: "main.luau")
         workspace.reload()
-        #expect(workspace.problem(of: "main") == nil)
-        #expect(workspace.trees["main"]?.text == "count 2")
+        #expect(workspace.problem(of: "shell") == nil)
+        #expect(workspace.trees["shell"]?.text == "count 2")
     }
 
     @Test func nothingChangedMeansNothingReloads() throws {
@@ -173,7 +173,7 @@ struct ReloadTests {
         try app.write("return function() return ui.text { 'new' } end", to: "components/label.luau")
         workspace.reload()
 
-        #expect(workspace.trees["main"]?.text == "new")
+        #expect(workspace.trees["shell"]?.text == "new")
     }
 
     @Test func aDeletedModGoesAwayWithItsProblem() throws {
@@ -192,16 +192,17 @@ struct ReloadTests {
         let sheet = ##"""
         return style {
             colors = { accent = "#111111" },
-            rules = { text = { radius = 3 }, nav = { radius = 9 }, ["nav:hover"] = { radius = 12 } },
+            rules = { text = { radius = 3 }, nav = { radius = 5 }, [".nav"] = { radius = 9 }, [".nav:hover"] = { radius = 12 } },
         }
         """##
         let app = try Sandbox(["main.luau": shell("return ui.text { 'a', class = 'nav' }"), "style.luau": sheet])
         let workspace = app.workspace()
         workspace.reload()
-        let tree = try #require(workspace.trees["main"])
+        let tree = try #require(workspace.trees["shell"])
         #expect(workspace.stylesheet.color("accent", dark: false) == "#111111")
         #expect(workspace.stylesheet.resolve(tree).radius == 9)
         #expect(workspace.stylesheet.resolve(tree, hovered: true).radius == 12)
+        #expect(Stylesheet.selectors(of: tree) == ["text", ".nav"], "a bare name is an element type, as in Moonframe")
 
         try app.write("return style {", to: "style.luau")
         workspace.reload()
@@ -233,7 +234,7 @@ struct OverlayTests {
 
         try workspace.write(shell("return ui.text { 'mine' }"), to: "main.luau")
 
-        #expect(workspace.trees["main"]?.text == "mine")
+        #expect(workspace.trees["shell"]?.text == "mine")
         #expect(folders.locate("main.luau")?.path.hasPrefix(user.root.path) == true)
         #expect(try String(contentsOf: builtin.root.appending(path: "main.luau"), encoding: .utf8) == counter)
     }
@@ -252,7 +253,7 @@ struct SandboxTests {
         let app = try Sandbox(["main.luau": shell(body)])
         let workspace = app.workspace(limits: limits)
         workspace.reload()
-        return workspace.problem(of: "main")?.message
+        return workspace.problem(of: "shell")?.message
     }
 
     @Test func anEndlessLoopRunsOutOfInstructions() throws {
@@ -279,7 +280,7 @@ struct SandboxTests {
         let app = try Sandbox(["main.luau": shell("return ui.text { type(\(name)) }")])
         let workspace = app.workspace()
         workspace.reload()
-        #expect(workspace.trees["main"]?.text == "nil")
+        #expect(workspace.trees["shell"]?.text == "nil")
     }
 
     @Test(arguments: ["ui.text = 1", "string.rep = nil", "x = 1"])
@@ -297,18 +298,18 @@ struct SandboxTests {
         """])
         let workspace = app.workspace()
         workspace.reload()
-        #expect(workspace.problem(of: "main") == nil)
+        #expect(workspace.problem(of: "shell") == nil)
 
         try app.write(counter, to: "main.luau")
         workspace.reload()
-        #expect(workspace.problem(of: "main")?.message.contains("nested too deep") == true)
+        #expect(workspace.problem(of: "shell")?.message.contains("nested too deep") == true)
     }
 
     @Test func bytecodeIsNotLoaded() throws {
         let app = try Sandbox(["main.luau": "\u{1B}Lua\u{0}\u{1}"])
         let workspace = app.workspace()
         workspace.reload()
-        #expect(workspace.problem(of: "main") != nil)
+        #expect(workspace.problem(of: "shell") != nil)
     }
 }
 
@@ -327,7 +328,7 @@ struct BundledAppTests {
 
         #expect(workspace.problems.isEmpty)
         #expect(workspace.trees.values.flatMap(\.problems).isEmpty)
-        #expect(Set(workspace.trees.keys) == ["main", "sidebar", "counter", "tasks", "status"])
+        #expect(Set(workspace.trees.keys) == ["shell", "sidebar", "counter", "tasks", "status"])
     }
 
     @Test func thePagesConnect() throws {
@@ -336,7 +337,7 @@ struct BundledAppTests {
 
         workspace.send(.fields(["go": .string("tasks")]), to: "sidebar")
 
-        let page = try #require(workspace.trees["main"]?.children[0].children.last?.children.first)
+        let page = try #require(workspace.trees["shell"]?.children[0].children.last?.children.first)
         #expect(page.string("mod") == "tasks")
         #expect(workspace.trees["status"]?.children[0].text == "tasks")
     }

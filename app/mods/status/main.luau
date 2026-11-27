@@ -20,12 +20,12 @@ return mod {
 	view = function(state, app)
 		return ui.row {
 			class = "status",
-			gap = "medium",
+			gap = "normal",
 			align = "center",
 			ui.badge { state.page },
 			ui.text { `{state.open} open tasks` },
 			ui.spacer {},
-			ui.text { `{math.floor(app.window.width)}×{math.floor(app.window.height)} · {app.appearance}` },
+			ui.text { `{math.floor(app.window.width)}×{math.floor(app.window.height)} · {if app.dark then "dark" else "light"}` },
 		}
 	end,
 }

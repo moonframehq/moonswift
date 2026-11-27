@@ -1,9 +1,10 @@
 import MoonKit
 import SwiftUI
 
-/// `ui.list`: the system's list, lazy all the way down. Its children are
-/// rows and `ui.section`s; `rows` and `row` add rows the mod draws only as
-/// they scroll into view.
+/// `ui.list`: the system's list, lazy all the way down. As in Moonframe,
+/// `count` and `row = function(i)` add rows the mod draws only as they
+/// scroll into view; `row_height` is left to the rows, which size
+/// themselves. Here its children may also be rows and `ui.section`s.
 struct ListNode: View {
     let node: Node
     let scope: Scope
@@ -71,7 +72,7 @@ struct ListContent: View {
             }
         }
         if let rows = node.lazyRows {
-            LazyRows(keys: rows.keys, view: rows.view, scope: scope, owner: node)
+            LazyRows(count: rows.count, function: rows.function, scope: scope, owner: node)
         }
     }
 }
@@ -167,7 +168,7 @@ struct GridNode: View {
         if let minimum = node.number("min") {
             return [GridItem(.adaptive(minimum: minimum), spacing: node.spacing)]
         }
-        let count = max(1, Int(node.number("columns") ?? 2))
+        let count = node.integer("columns", in: 1...64) ?? 2
         return Array(repeating: GridItem(.flexible(), spacing: node.spacing), count: count)
     }
 }
@@ -186,7 +187,7 @@ struct DisclosureNode: View {
             Children(node: node, scope: scope)
         } label: {
             if let icon = node.string("icon") {
-                Label(node.string("label") ?? "", systemImage: icon)
+                Label(node.string("label") ?? "", systemImage: Icons.symbol(or: icon, default: "questionmark"))
             } else {
                 Text(verbatim: node.string("label") ?? "")
             }

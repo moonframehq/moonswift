@@ -1,7 +1,9 @@
-/// Native data and capabilities for sealed Luau, as in Moonframe. A mod lists
-/// the providers it reads in `providers = { "clock" }` and finds their data
-/// as `app.clock` in `view`; it asks one for something by sending to
-/// `provider:clock`, and the answer comes back as a message.
+/// Native data and capabilities for sealed Luau, as in Moonframe. A view
+/// finds a provider's data as `app.clock`, nil until it first publishes, and
+/// runs again whenever it publishes; a mod that subscribes to
+/// `provider/clock` hears each publish in `update`. A mod asks a provider
+/// for something by sending to `provider:clock`, and the answer comes back
+/// as a message.
 ///
 /// Providers are Swift the app links, so a store build has exactly the ones
 /// it was reviewed with: Luau can only reach what they offer.
@@ -31,8 +33,9 @@ public final class ProviderLink {
 
     /// Replaces what mods read as `app.<name>`, and redraws those that read it.
     public func publish(_ value: LuauValue) {
-        guard let workspace, workspace.providers[name]?.value != value else { return }
-        workspace.providers[name]?.value = value
+        guard let workspace, let slot = workspace.providers[name], slot.value != value else { return }
+        slot.value = value
+        slot.version += 1
         workspace.providerChanged(name)
     }
 
@@ -44,7 +47,10 @@ public final class ProviderLink {
 
 final class ProviderSlot {
     let provider: any Provider
-    var value: LuauValue = .emptyTable
+    /// What it last published, nil before the first time.
+    var value: LuauValue?
+    /// Goes up with each publish, so a VM copies the data only when it changed.
+    var version = 0
 
     init(provider: any Provider) {
         self.provider = provider

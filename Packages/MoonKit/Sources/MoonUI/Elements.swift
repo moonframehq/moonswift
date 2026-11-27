@@ -63,11 +63,25 @@ extension NodeView {
             ControlNode(node: node, identifier: identifier, send: send)
         case .menu:
             MenuNode(node: node, scope: scope, identifier: identifier, send: send).font(font(style))
-        case .native:
+        case .native, .view:
             NativeNode(node: node, send: send)
+        case .terminal:
+            NativeNode(node: node, send: send, name: "terminal")
+        case .item:
+            ItemNode(node: node).font(font(style))
+        case .pane:
+            VStack(alignment: .leading, spacing: node.spacing) { Children(node: node, scope: scope) }
+        case .popover:
+            PopoverNode(node: node, scope: scope, send: send)
+        case .overlay:
+            OverlayNode(node: node, scope: scope, send: send)
+        case .browser:
+            BrowserNode(node: node)
+        case .map, .video, .line, .paths, .hatch, .revisionTimeline:
+            PlaceholderNode(node: node)
         case .invalid:
             WarningMark(text: node.problem ?? "bad element")
-        case .region, .mount, .spacer, .stack, .tabs, .tab, .split, .list, .form, .section:
+        case .region, .mount, .spacer, .stack, .tabs, .tab, .split, .list, .form, .section, .hsplit, .vsplit:
             EmptyView()
         }
     }
@@ -79,6 +93,7 @@ extension NodeView {
         case .stack: StackNode(node: node, scope: scope, send: send)
         case .tabs: TabsNode(node: node, scope: scope, send: send)
         case .split: SplitNode(node: node, scope: scope)
+        case .hsplit, .vsplit: SplitPanesNode(node: node, scope: scope)
         case .list: ListNode(node: node, scope: scope, send: send)
         case .form: FormNode(node: node, scope: scope)
         // Outside a list or form, a section is just its rows.
@@ -97,7 +112,7 @@ extension NodeView {
     }
 
     private func panelTitle(_ title: String) -> some View {
-        let style = workspace.stylesheet.resolve(selector: "panel-title")
+        let style = workspace.stylesheet.resolve(selector: "panel-header")
         return Text(title.uppercased())
             .font(font(style))
             .foregroundStyle(workspace.stylesheet.paint(style.color, dark: dark) ?? .secondary)
@@ -112,7 +127,7 @@ struct TextNode: View {
 
     var body: some View {
         text
-            .lineLimit(node.number("lines").map(Int.init))
+            .lineLimit(node.integer("lines", in: 1...10_000) ?? (node.flag("truncate") ? 1 : nil))
             .multilineTextAlignment(alignment)
             .contentTransition(node.flag("numeric") ? .numericText() : .identity)
             .modifier(Selectable(on: node.flag("selectable")))
@@ -204,7 +219,7 @@ struct NodeLabel: View {
             Label {
                 title
             } icon: {
-                Image(systemName: icon)
+                Image(systemName: Icons.symbol(or: icon, default: "questionmark"))
             }
         } else {
             title
@@ -249,9 +264,9 @@ struct ShareNode: View {
     private var label: some View {
         let text = node.string("label") ?? "Share"
         if node.flag("iconOnly") {
-            Image(systemName: node.string("icon") ?? "square.and.arrow.up")
+            Image(systemName: Icons.symbol(or: node.string("icon"), default: "square.and.arrow.up"))
         } else {
-            Label(text, systemImage: node.string("icon") ?? "square.and.arrow.up")
+            Label(text, systemImage: Icons.symbol(or: node.string("icon"), default: "square.and.arrow.up"))
         }
     }
 }
@@ -281,14 +296,18 @@ struct IconNode: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let image = Image(systemName: node.string(key) ?? "questionmark")
-            .symbolRenderingMode(rendering)
-            .symbolVariant(node.flag("fill") ? .fill : .none)
-            .modifier(SymbolEffect(name: key == "name" ? node.string("effect") : nil))
-        if let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark) {
-            image.foregroundStyle(tint)
+        if let symbol = node.string(key).flatMap(Icons.symbol) {
+            let image = Image(systemName: symbol)
+                .symbolRenderingMode(rendering)
+                .symbolVariant(node.flag("fill") ? .fill : .none)
+                .modifier(SymbolEffect(name: key == "name" ? (node.flag("spin") ? "rotate" : node.string("effect")) : nil))
+            if let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark) {
+                image.foregroundStyle(tint)
+            } else {
+                image
+            }
         } else {
-            image
+            WarningMark(text: "no icon named \(node.string(key) ?? "")")
         }
     }
 
@@ -328,7 +347,9 @@ struct ImageNode: View {
     @Environment(\.imageHosts) private var hosts
 
     var body: some View {
-        if let text = node.string("url") {
+        // Moonframe's `src`: a URL, or here the name of an asset.
+        let source = node.string("src")
+        if let text = node.string("url") ?? source.flatMap({ $0.contains("://") ? $0 : nil }) {
             if let url = URL(string: text), url.scheme == "https", let host = url.host(), hosts.contains(host) {
                 AsyncImage(url: url) { image in
                     fitted(image.resizable())
@@ -338,7 +359,7 @@ struct ImageNode: View {
             } else {
                 WarningMark(text: "images load only over HTTPS from hosts the app allows")
             }
-        } else if let asset = node.string("asset") {
+        } else if let asset = node.string("asset") ?? source {
             fitted(Image(asset).resizable())
         } else {
             Image(systemName: node.string("symbol") ?? "photo")
@@ -392,7 +413,7 @@ struct UnavailableNode: View {
             ContentUnavailableView.search(text: node.string("query") ?? "")
         } else {
             ContentUnavailableView {
-                Label(node.string("text") ?? "", systemImage: node.string("icon") ?? "tray")
+                Label(node.string("text") ?? "", systemImage: Icons.symbol(or: node.string("icon"), default: "tray"))
             } description: {
                 if let description = node.string("description") { Text(verbatim: description) }
             } actions: {
@@ -407,13 +428,18 @@ struct UnavailableNode: View {
 struct NativeNode: View {
     let node: Node
     let send: (LuauValue) -> Void
+    /// The native view to draw, if not the element's `name`: `ui.terminal`
+    /// draws the app's `terminal`.
+    var name: String?
 
     @Environment(\.nativeViews) private var natives
 
     var body: some View {
-        let name = node.string("name") ?? ""
+        let name = name ?? node.string("name") ?? ""
         if let make = natives.makers[name] {
             make(NativeContext(node: node, send: send))
+        } else if self.name != nil {
+            PlaceholderNode(node: node)
         } else {
             WarningMark(text: "no native view named \(name)")
         }

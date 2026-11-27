@@ -27,6 +27,17 @@ nonisolated public enum LuauValue: Equatable, Hashable, Sendable {
         return nil
     }
 
+    /// The number as an `Int`, nil for one that isn't finite, held to
+    /// ±1e9: `Int(math.huge)` from a script would trap the host.
+    public var integer: Int? {
+        number.flatMap(Self.integer)
+    }
+
+    public static func integer(_ number: Double) -> Int? {
+        guard number.isFinite else { return nil }
+        return Int(min(max(number, -1e9), 1e9))
+    }
+
     public var bool: Bool? {
         if case .bool(let value) = self { return value }
         return nil

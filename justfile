@@ -104,3 +104,7 @@ ci: lint check check-examples test smoke ios-build store-audit
 # Update Luau: bump the version and checksum in the script first.
 vendor-luau:
     ./scripts/vendor-luau.sh
+
+# Copy the conformance suite from a Moonframe checkout, the reference copy.
+conformance-sync moonframe="~/code/moonframe":
+    rsync -a --delete {{moonframe}}/conformance/ conformance/

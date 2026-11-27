@@ -53,7 +53,7 @@ struct BenchmarkTests {
         var flip = false
         let luau = median {
             flip.toggle()
-            workspace.send(.fields(["msg": .string("query"), "value": .string(flip ? "1" : "")]), to: "main")
+            workspace.send(.fields(["msg": .string("query"), "value": .string(flip ? "1" : "")]), to: "shell")
         }
         var sink = 0
         let swift = median {
@@ -70,15 +70,15 @@ struct BenchmarkTests {
         let (app, workspace) = try workspace()
         _ = app
         // What a phone shows of a list at once, and then some.
-        let visible = (100..<130).map { LuauValue.string("s\($0)") }
+        let visible = (100..<130).map { LuauValue.number(Double($0)) }
         var flip = false
         let luau = median {
             flip.toggle()
-            workspace.send(.fields(["pick": .string(flip ? "s101" : "s102")]), to: "main")
-            for key in visible { _ = workspace.part("session", key: key, of: "main") }
+            workspace.send(.fields(["pick": .string(flip ? "s101" : "s102")]), to: "shell")
+            for key in visible { _ = workspace.part(1, key: key, of: "shell") }
         }
         let cached = median {
-            for key in visible { _ = workspace.part("session", key: key, of: "main") }
+            for key in visible { _ = workspace.part(1, key: key, of: "shell") }
         }
         report("30 rows after a change", luau: luau, swift: cached, against: "cached")
         #expect(luau < 20, "30 rows took \(luau) ms")
@@ -109,7 +109,7 @@ struct BenchmarkTests {
     @Test func memoryForTenThousandItems() throws {
         let (app, workspace) = try workspace()
         _ = app
-        let bytes = try #require(workspace.memory(of: "main"))
+        let bytes = try #require(workspace.memory(of: "shell"))
         let swift = MemoryLayout<Item>.stride * Self.rows + Self.rows * 2 * 16
         report("memory, 10k items", luau: Double(bytes) / 1_048_576, swift: Double(swift) / 1_048_576, unit: "MB")
         #expect(bytes < 16 * 1_048_576, "10k items took \(bytes) bytes")

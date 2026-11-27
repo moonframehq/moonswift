@@ -1,4 +1,4 @@
-/// What the host tells every `view`, as `app`.
+/// What the host tells every `view`, as `app`, besides providers' data.
 public struct AppContext: Equatable, Sendable {
     public var width: Double
     public var height: Double
@@ -12,11 +12,19 @@ public struct AppContext: Equatable, Sendable {
         self.dark = dark
     }
 
+    /// As Moonframe's `app`: `dark`, `appearance`, `window` with the
+    /// platform and size, and `renderer`, which is `swiftui` here. `phase`
+    /// is MoonSwift's own.
     public var value: LuauValue {
         .fields([
-            "window": .fields(["width": .number(width), "height": .number(height)]),
-            "appearance": .string(dark ? "dark" : "light"),
-            "platform": .string(Self.platform),
+            "dark": .bool(dark),
+            "appearance": .fields(["mode": .string("system"), "dark": .bool(dark)]),
+            "window": .fields([
+                "platform": .string(Self.platform),
+                "width": .number(width),
+                "height": .number(height),
+            ]),
+            "renderer": .string("swiftui"),
             "phase": .string(phase),
         ])
     }
@@ -33,15 +41,20 @@ public struct AppContext: Equatable, Sendable {
 nonisolated public struct Node: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable, CaseIterable {
         // Layout.
-        case row, column, panel, spacer, divider, scroll, grid, fits
+        case row, column, panel, spacer, divider, scroll, grid, fits, hsplit, vsplit, pane
         // Navigation and lists.
-        case stack, tabs, tab, split, list, section, form, link, disclosure
+        case stack, tabs, tab, split, list, section, form, link, disclosure, item
         // Content.
         case text, markdown, label, labeled, badge, icon, image, progress, unavailable
         // Controls.
         case button, input, secure, editor, toggle, slider, stepper, picker, menu, share, edit
+        // Floating over the rest.
+        case popover, overlay
         // The host's: other mods, and views the app registers natively.
-        case region, mount, native
+        case region, mount, native, view, terminal
+        // Moonframe's, which draw here as a placeholder naming them.
+        case browser, map, video, line, paths, hatch
+        case revisionTimeline = "revision_timeline"
         case invalid
     }
 
@@ -57,12 +70,25 @@ nonisolated public struct Node: Equatable, Sendable {
     /// last one costs one integer however big it is, and a view can skip a
     /// subtree that didn't change without walking it.
     public let digest: Int
+    /// The axis its parent lays children along: `grow = true` grows that
+    /// way only, as in Moonframe. Nil at a root, which grows both ways.
+    public let axis: Axis?
+    /// Whether its parent grows and stretches what it holds across its
+    /// axis, as a Moonframe stack does unless its `align` says otherwise:
+    /// `grow = true` then fills that way too.
+    public let stretched: Bool
+
+    public enum Axis: Sendable { case horizontal, vertical }
 
     public static func == (lhs: Node, rhs: Node) -> Bool {
         lhs.digest == rhs.digest
     }
 
     public init(_ value: LuauValue) {
+        self.init(value, axis: nil, stretched: false)
+    }
+
+    private init(_ value: LuauValue, axis: Axis?, stretched: Bool) {
         guard case .table(let array, var fields) = value else {
             self = .invalid("expected an element, got \(value.summary)")
             return
@@ -71,7 +97,9 @@ nonisolated public struct Node: Equatable, Sendable {
             self = .invalid("this table is not an element: use ui.row, ui.text, ...")
             return
         }
-        line = fields.removeValue(forKey: "__line")?.number.map(Int.init)
+        self.axis = axis
+        self.stretched = stretched
+        line = fields.removeValue(forKey: "__line")?.integer
         guard let kind = Kind(rawValue: name), kind != .invalid else {
             self.kind = .invalid
             props = [:]
@@ -83,12 +111,20 @@ nonisolated public struct Node: Equatable, Sendable {
         self.kind = kind
         props = fields
         // `flag and ui.text { ... }` leaves false in the list: that's nothing.
-        children = array.filter { $0 != .bool(false) }.map(Node.init)
+        let along: Axis? = switch kind {
+        case .row: .horizontal
+        case .column, .panel, .pane, .scroll, .list, .section, .form: .vertical
+        default: nil
+        }
+        let stretches = fields["grow"] == .bool(true) && (fields["align"] == nil || fields["align"] == .string("stretch"))
+        children = array.filter { $0 != .bool(false) }.map { Node($0, axis: along, stretched: stretches) }
         problem = nil
-        digest = Self.digest(kind: kind, props: fields, children: children, extra: line.map(String.init))
+        digest = Self.digest(kind: kind, props: fields, children: children, extra: "\(line ?? 0) \(String(describing: axis)) \(stretched)")
     }
 
     private init(invalid problem: String) {
+        axis = nil
+        stretched = false
         kind = .invalid
         props = [:]
         children = []
@@ -120,8 +156,11 @@ nonisolated public struct Node: Equatable, Sendable {
         switch kind {
         case .text, .markdown, .badge, .label, .link, .labeled: string("text")
         case .share: string("label")
-        case .button, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
-        case .icon, .native: string("name")
+        case .button, .item, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
+        case .icon, .native, .view: string("name")
+        case .terminal: string("id")
+        case .browser: string("url")
+        case .image: string("src")
         case .input, .secure, .editor: string("placeholder")
         case .region: string("name")
         case .mount: string("mod")
@@ -175,11 +214,24 @@ nonisolated extension Node {
         return Overlay(fields: fields, content: array.filter { $0 != .bool(false) }.map(Node.init))
     }
 
-    /// Lazy rows: `rows` lists their keys, `row` names the mod's view that
-    /// draws one.
-    public var lazyRows: (keys: [LuauValue], view: String)? {
-        guard let view = string("row"), let keys = props["rows"]?.array else { return nil }
-        return (keys, view)
+    /// A function the view put in a prop, such as a list's `row`: its
+    /// number, for `Workspace.part`.
+    public func function(_ key: String) -> Int? {
+        props[key]?["__function"]?.integer
+    }
+
+    /// Lazy rows, as Moonframe's lists have them: `count` rows, each drawn
+    /// by `row(i)` only as it shows. At most 100,000, as in Moonframe.
+    public static let maxRows = 100_000
+
+    public var lazyRows: (count: Int, function: Int)? {
+        guard let function = function("row") else { return nil }
+        return (min(max(0, props["count"]?.integer ?? 0), Self.maxRows), function)
+    }
+
+    /// A whole number prop, held to `range`.
+    public func integer(_ key: String, in range: ClosedRange<Int>) -> Int? {
+        props[key]?.integer.map { min(max($0, range.lowerBound), range.upperBound) }
     }
 }
 

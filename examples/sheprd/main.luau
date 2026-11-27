@@ -67,7 +67,7 @@ end
 
 local function byKey(app)
 	local chats = {}
-	for _, chat in app.home.chats or {} do
+	for _, chat in (app.home or {}).chats or {} do
 		chats[chat.key] = chat
 	end
 	return chats
@@ -90,8 +90,11 @@ local function header(state: State, section)
 	}
 end
 
-local function home(state: State, app)
-	local chats = app.home.chats or {}
+-- Defined further down, once what they draw is.
+local chatAt, screenFor
+
+local function home(state: State, app, screen)
+	local chats = (app.home or {}).chats or {}
 	local unread = 0
 	for _, chat in chats do
 		if chat.unread then
@@ -156,14 +159,16 @@ local function home(state: State, app)
 		table.insert(list, ui.section {
 			key = section.id,
 			header = header(state, section),
-			rows = if folded then {} else section.keys,
-			row = "chat",
+			count = if folded then 0 else #section.keys,
+			row = function(i)
+				return chatAt(state, byKey(app)[section.keys[i]])
+			end,
 		})
 	end
 	return ui.stack {
 		path = state.path,
 		change = "path",
-		screen = "screen",
+		screen = screen,
 		ui.list(list),
 	}
 end
@@ -264,9 +269,42 @@ local function answerCard(chat)
 	}
 end
 
-return mod {
-	providers = { "home", "system" },
+-- A row of the Home list: a question to answer in place, or a chat.
+chatAt = function(state: State, chat)
+	if not chat then
+		return ui.text { "Gone" }
+	end
+	if chat.question then
+		return answerCard(chat)
+	end
+	return chatRow(state, chat)
+end
 
+-- A screen pushed on a stack: a settings page, a workspace's shell, or a chat.
+screenFor = function(state: State, route, app)
+	if route.page then
+		return settings.page(state, route.page)
+	end
+	if route.workspace then
+		-- The workspace's shell: a view the app draws natively.
+		return ui.view {
+			"terminal",
+			pane = "p3",
+			grow = true,
+			title = "zsh",
+			titleMode = "inline",
+			hidesTabBar = true,
+			toolbar = { ui.button { icon = "keyboard", place = "trailing", msg = "keys" } },
+		}
+	end
+	local conversation = byKey(app)[route.chat]
+	if not conversation then
+		return ui.unavailable { "This chat is gone", icon = "bubble.left.and.text.bubble.right" }
+	end
+	return chat.screen(state, route.chat, conversation, ((app.home or {}).transcripts or {})[route.chat] or {})
+end
+
+return mod {
 	init = function(previous)
 		local state = previous or {}
 		return {
@@ -400,16 +438,19 @@ return mod {
 	end,
 
 	view = function(state: State, app)
+		local screen = function(route)
+			return screenFor(state, route, app)
+		end
 		return ui.tabs {
 			scheme = string.lower(state.appearance),
 			selection = state.tab,
 			change = "tab",
-			ui.tab { "Home", icon = "house", key = "home", badge = app.home.waiting, home(state, app) },
+			ui.tab { "Home", icon = "house", key = "home", badge = (app.home or {}).waiting, home(state, app, screen) },
 			ui.tab {
 				"Workspaces",
 				icon = "square.stack.3d.up",
 				key = "workspaces",
-				ui.stack { path = state.workspacesPath, change = "workspacesPath", screen = "screen", workspaces.view(state, app) },
+				ui.stack { path = state.workspacesPath, change = "workspacesPath", screen = screen, workspaces.view(state, app) },
 			},
 			ui.tab {
 				"PRs",
@@ -445,44 +486,8 @@ return mod {
 				"Settings",
 				icon = "gearshape",
 				key = "settings",
-				ui.stack { path = state.settingsPath, change = "settingsPath", screen = "screen", settings.hub(state, app) },
+				ui.stack { path = state.settingsPath, change = "settingsPath", screen = screen, settings.hub(state, app) },
 			},
 		}
 	end,
-
-	views = {
-		chat = function(state: State, key, app)
-			local chat = byKey(app)[key]
-			if not chat then
-				return ui.text { "Gone" }
-			end
-			if chat.question then
-				return answerCard(chat)
-			end
-			return chatRow(state, chat)
-		end,
-
-		screen = function(state: State, route, app)
-			if route.page then
-				return settings.page(state, route.page)
-			end
-			if route.workspace then
-				-- The workspace's shell: a view the app draws natively.
-				return ui.native {
-					"terminal",
-					pane = "p3",
-					grow = true,
-					title = "zsh",
-					titleMode = "inline",
-					hidesTabBar = true,
-					toolbar = { ui.button { icon = "keyboard", place = "trailing", msg = "keys" } },
-				}
-			end
-			local conversation = byKey(app)[route.chat]
-			if not conversation then
-				return ui.unavailable { "This chat is gone", icon = "bubble.left.and.text.bubble.right" }
-			end
-			return chat.screen(state, route.chat, conversation, (app.home.transcripts or {})[route.chat] or {})
-		end,
-	},
 }

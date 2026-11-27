@@ -29,6 +29,9 @@ final class LuauVM {
 
     private let state: OpaquePointer
     private let sink: Unmanaged<LogSink>
+    /// While set, `read` keeps each function it meets in the registry and
+    /// reads it as `{ __function = n }`, its place in this list.
+    private var functions: [Int32]?
 
     init(chunk: String, memory: Int, budget: UInt64, log: @escaping (String) -> Void) throws(LuauError) {
         let sink = Unmanaged.passRetained(LogSink(write: log))
@@ -110,6 +113,15 @@ final class LuauVM {
         return reference
     }
 
+    /// Sets `table[key] = value` raw, for the table held by `reference`.
+    func setRaw(_ key: String, _ value: LuauValue?, in reference: Int32) {
+        pushReference(reference)
+        pushString(key)
+        push(value)
+        lua_rawset(state, -3)
+        pop()
+    }
+
     func pushReference(_ reference: Int32) {
         lua_rawgeti(state, Int32(MOON_REGISTRY), reference)
     }
@@ -157,12 +169,47 @@ final class LuauVM {
         return try read(at: lua_absindex(state, index), depth: 0, entries: &entries)
     }
 
+    /// `read`, keeping the functions in the value too, such as a list's
+    /// `row`: each becomes `{ __function = n }`, and the n-th reference
+    /// returned calls it. The caller releases the references.
+    func readKeepingFunctions(at index: Int32 = -1) throws(LuauError) -> (LuauValue?, [Int32]) {
+        functions = []
+        defer { functions = nil }
+        var entries = 0
+        do {
+            let value = try read(at: lua_absindex(state, index), depth: 0, entries: &entries)
+            return (value, functions ?? [])
+        } catch {
+            functions?.forEach(release)
+            throw error
+        }
+    }
+
+    /// The string keys of the table at `index`, whatever their values.
+    func keys(at index: Int32 = -1) -> [String] {
+        let table = lua_absindex(state, index)
+        var keys: [String] = []
+        lua_checkstack(state, 3)
+        lua_pushnil(state)
+        while lua_next(state, table) != 0 {
+            if lua_type(state, -2) == Int32(LUA_TSTRING.rawValue) { keys.append(string(at: -2)) }
+            pop()
+        }
+        return keys
+    }
+
     private func read(at index: Int32, depth: Int, entries: inout Int) throws(LuauError) -> LuauValue? {
         switch UInt32(lua_type(state, index)) {
         case LUA_TBOOLEAN.rawValue: return .bool(lua_toboolean(state, index) != 0)
         case LUA_TNUMBER.rawValue: return .number(lua_tonumberx(state, index, nil))
         case LUA_TSTRING.rawValue: return .string(string(at: index))
         case LUA_TTABLE.rawValue: break
+        case LUA_TFUNCTION.rawValue:
+            guard functions != nil else { return nil }
+            lua_pushvalue(state, index)
+            functions?.append(lua_ref(state, -1))
+            pop()
+            return .fields(["__function": .number(Double(functions?.count ?? 0))])
         default: return nil
         }
         guard depth < Self.maxDepth else { throw LuauError("a table is nested too deep, or holds itself") }
@@ -178,7 +225,9 @@ final class LuauVM {
             guard let value = try read(at: lua_gettop(state), depth: depth + 1, entries: &entries) else { continue }
             switch UInt32(lua_type(state, -2)) {
             case LUA_TSTRING.rawValue: fields[string(at: -2)] = value
-            case LUA_TNUMBER.rawValue: items.append((Int(lua_tonumberx(state, -2, nil)), value))
+            case LUA_TNUMBER.rawValue:
+                // A key such as `math.huge` or `0/0` is no list position.
+                if let position = LuauValue.integer(lua_tonumberx(state, -2, nil)) { items.append((position, value)) }
             default: break
             }
         }

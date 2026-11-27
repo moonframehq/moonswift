@@ -16,12 +16,18 @@ extension Stylesheet {
 }
 
 extension Color {
+    /// `#rgb`, `#rrggbb` or `#rrggbbaa`.
     init?(hex: String) {
-        guard hex.hasPrefix("#"), hex.count == 7, let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        guard hex.hasPrefix("#") else { return nil }
+        var digits = String(hex.dropFirst())
+        if digits.count == 3 { digits = digits.map { "\($0)\($0)" }.joined() }
+        if digits.count == 6 { digits += "ff" }
+        guard digits.count == 8, let value = UInt32(digits, radix: 16) else { return nil }
         self.init(
-            red: Double(value >> 16 & 0xFF) / 255,
-            green: Double(value >> 8 & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
+            red: Double(value >> 24 & 0xFF) / 255,
+            green: Double(value >> 16 & 0xFF) / 255,
+            blue: Double(value >> 8 & 0xFF) / 255,
+            opacity: Double(value & 0xFF) / 255
         )
     }
 }
@@ -30,11 +36,13 @@ extension Color {
     /// The system's own colors by name, which follow light and dark.
     init?(system name: String) {
         switch name {
-        case "primary": self = .primary
-        case "secondary": self = .secondary
+        case "primary", "foreground": self = .primary
+        case "secondary", "muted-foreground": self = .secondary
         case "tint", "accent": self = .accentColor
-        case "red": self = .red
-        case "orange": self = .orange
+        case "accent-foreground": self = .white
+        case "red", "danger": self = .red
+        case "orange", "warning": self = .orange
+        case "success": self = .green
         case "yellow": self = .yellow
         case "green": self = .green
         case "mint": self = .mint
@@ -49,19 +57,22 @@ extension Color {
         case "white": self = .white
         case "black": self = .black
         case "clear": self = .clear
+        // Moonframe's theme colors are the system's semantic ones here.
+        case "list-hover": self = Color.accentColor.opacity(0.08)
+        case "list-active": self = Color.accentColor.opacity(0.15)
         #if os(iOS)
         case "tertiary": self = Color(uiColor: .tertiaryLabel)
         case "background": self = Color(uiColor: .systemBackground)
-        case "grouped": self = Color(uiColor: .systemGroupedBackground)
-        case "fill": self = Color(uiColor: .secondarySystemFill)
-        case "separator": self = Color(uiColor: .separator)
-        case "secondaryGrouped": self = Color(uiColor: .secondarySystemGroupedBackground)
+        case "grouped", "sidebar": self = Color(uiColor: .systemGroupedBackground)
+        case "fill", "muted": self = Color(uiColor: .secondarySystemFill)
+        case "separator", "border": self = Color(uiColor: .separator)
+        case "secondaryGrouped", "card": self = Color(uiColor: .secondarySystemGroupedBackground)
         #else
         case "tertiary": self = Color(nsColor: .tertiaryLabelColor)
-        case "background", "grouped": self = Color(nsColor: .windowBackgroundColor)
-        case "fill": self = Color(nsColor: .quaternaryLabelColor)
-        case "separator": self = Color(nsColor: .separatorColor)
-        case "secondaryGrouped": self = Color(nsColor: .controlBackgroundColor)
+        case "background", "grouped", "sidebar": self = Color(nsColor: .windowBackgroundColor)
+        case "fill", "muted": self = Color(nsColor: .quaternaryLabelColor)
+        case "separator", "border": self = Color(nsColor: .separatorColor)
+        case "secondaryGrouped", "card": self = Color(nsColor: .controlBackgroundColor)
         #endif
         default: return nil
         }
@@ -148,20 +159,17 @@ extension EdgeInsets {
 }
 
 extension Node {
-    /// `gap`: a name or points.
+    /// `gap`: one of Moonframe's space tokens, or points. `normal` by default.
     var spacing: CGFloat {
         if let points = number("gap") { return points }
-        switch string("gap") {
-        case "none": return 0
-        case "small": return 6
-        case "large": return 20
-        default: return 12
-        }
+        return CGFloat(string("gap").flatMap(Edges.space) ?? 8)
     }
 
-    /// `grow`: true for both ways, or "x" or "y" for one.
-    var growsWide: Bool { flag("grow") || string("grow") == "x" }
-    var growsTall: Bool { flag("grow") || string("grow") == "y" }
+    /// `grow = true` takes the free space along the parent's axis, as in
+    /// Moonframe, and across it too where a growing parent stretches it, or
+    /// both ways at a root; `"x"` or `"y"` pick one here.
+    var growsWide: Bool { (flag("grow") && (axis != .vertical || stretched)) || string("grow") == "x" }
+    var growsTall: Bool { (flag("grow") && (axis != .horizontal || stretched)) || string("grow") == "y" }
 
     var horizontalAlignment: HorizontalAlignment {
         switch string("align") {

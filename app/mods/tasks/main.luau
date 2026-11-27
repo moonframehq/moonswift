@@ -47,7 +47,7 @@ return mod {
 				gap = "small",
 				align = "center",
 				msg = { toggle = index },
-				ui.icon { if task.done then "checkmark.circle.fill" else "circle" },
+				ui.icon { if task.done then "circle-check" else "circle" },
 				ui.text { task.title, class = if task.done then "done" else nil },
 			})
 		end

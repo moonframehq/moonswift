@@ -30,6 +30,10 @@ struct ButtonNode: View {
 
         switch node.string("variant") {
         case "primary": button.buttonStyle(.borderedProminent)
+        // Moonframe's variants.
+        case "ghost": button.buttonStyle(.borderless)
+        case "outline", "normal": button.buttonStyle(.bordered)
+        case "danger": button.buttonStyle(.bordered).tint(.red)
         case "glass": button.buttonStyle(.glass)
         case "prominentGlass": button.buttonStyle(.glassProminent)
         case "plain": button.buttonStyle(.plain)
@@ -49,9 +53,9 @@ struct ButtonLabel: View {
     var body: some View {
         if let icon = node.string("icon") {
             if node.string("label") == nil {
-                Image(systemName: icon)
+                Image(systemName: Icons.symbol(or: icon, default: "questionmark"))
             } else {
-                Label(node.string("label") ?? "", systemImage: icon)
+                Label(node.string("label") ?? "", systemImage: Icons.symbol(or: icon, default: "questionmark"))
             }
         } else {
             Text(verbatim: node.string("label") ?? "")
@@ -72,7 +76,8 @@ extension Node {
     }
 
     var controlSize: ControlSize {
-        switch string("size") {
+        if flag("small") { return .small }
+        return switch string("size") {
         case "mini": .mini
         case "small": .small
         case "large": .large
@@ -101,7 +106,7 @@ struct ControlNode: View {
                 event(node.props["change"], value: .bool(value)).map(send)
             }) {
                 if let icon = node.string("icon") {
-                    Label(node.string("label") ?? "", systemImage: icon)
+                    Label(node.string("label") ?? "", systemImage: Icons.symbol(or: icon, default: "questionmark"))
                 } else {
                     Text(verbatim: node.string("label") ?? "")
                 }
@@ -170,7 +175,7 @@ private struct InputNode: View {
     private var field: some View {
         let placeholder = node.string("placeholder") ?? ""
         switch node.kind {
-        case .secure:
+        case .input where node.flag("secret"), .secure:
             bordered(SecureField(placeholder, text: $text))
         case .editor:
             TextEditor(text: $text)
@@ -178,7 +183,7 @@ private struct InputNode: View {
         default:
             bordered(
                 TextField(placeholder, text: $text, axis: node.flag("multiline") ? .vertical : .horizontal)
-                    .lineLimit(node.flag("multiline") ? 1...(node.number("lines").map(Int.init) ?? 6) : 1...1)
+                    .lineLimit(node.flag("multiline") ? 1...(node.integer("lines", in: 1...10_000) ?? 6) : 1...1)
             )
         }
     }
@@ -231,7 +236,7 @@ struct PickerNode: View {
         }) {
             ForEach(options, id: \.value) { option in
                 if let icon = option.icon {
-                    Label(option.label, systemImage: icon).tag(option.value)
+                    Label(option.label, systemImage: Icons.symbol(or: icon, default: "questionmark")).tag(option.value)
                 } else {
                     Text(verbatim: option.label).tag(option.value)
                 }
