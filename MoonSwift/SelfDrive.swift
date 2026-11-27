@@ -176,6 +176,17 @@ struct SelfDrive {
         return view.visibleRect.contains(manager.boundingRect(forGlyphRange: glyphs, in: container))
     }
 
+    private func lineReport(_ line: Int, in view: NSTextView?) -> String {
+        guard let view, let manager = view.layoutManager, let container = view.textContainer else { return "no view" }
+        let lines = view.string.components(separatedBy: "\n")
+        let start = lines.prefix(line - 1).reduce(0) { $0 + ($1 as NSString).length + 1 }
+        let glyphs = manager.glyphRange(
+            forCharacterRange: NSRange(location: start, length: (lines[line - 1] as NSString).length),
+            actualCharacterRange: nil
+        )
+        return "visible \(view.visibleRect), line \(manager.boundingRect(forGlyphRange: glyphs, in: container))"
+    }
+
     private func source() throws -> String {
         try String(contentsOf: counterFile, encoding: .utf8)
     }
@@ -284,7 +295,13 @@ struct SelfDrive {
         try await settle()
         // Found isn't enough: it has to be seen, beside a narrower canvas.
         try check((text?.visibleRect.width ?? 0) > 200, "the inspector's editor should be visible")
-        try check(lineIsVisible(line, in: text), "line \(line) should be on screen in the editor")
+        // The editor scrolls once the panel has opened, which takes longer on a
+        // busy machine: wait for it rather than sample once.
+        do {
+            try await until("line \(line) on screen in the editor", timeout: .seconds(3)) { lineIsVisible(line, in: text) }
+        } catch {
+            throw Failure(message: "line \(line) should be on screen in the editor: \(lineReport(line, in: text))")
+        }
         let room = try window().frame.width - workspace.context.width
         try check(room >= 300, "the canvas should make room for the panel, gave \(room)")
         try snapshot("5-inspected")

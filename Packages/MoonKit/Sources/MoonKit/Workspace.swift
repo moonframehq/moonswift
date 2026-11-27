@@ -8,6 +8,18 @@ public struct Problem: Equatable, Sendable, Identifiable {
     public var id: String { file }
 }
 
+/// What one mod drew. Each mod has its own, so a change redraws only the
+/// views that show that mod, not the whole window.
+@Observable
+public final class Drawing {
+    public internal(set) var tree: Node?
+    /// Goes up whenever the mod's state or data may have changed: what its
+    /// lazy views (rows, screens) drew before is stale then.
+    public internal(set) var generation = 0
+
+    init() {}
+}
+
 /// The whole app: every module, the trees they drew and the stylesheet.
 /// `reload` swaps in what changed on disk with each mod's state kept, and a
 /// module that fails to load leaves the running one, and its view, in place.
@@ -18,9 +30,15 @@ public final class Workspace {
     /// Messages one send may set off, which stops two mods ping-ponging.
     private static let maxMessages = 1000
 
-    public private(set) var trees: [String: Node] = [:]
+    /// Every mod's tree. Reading this follows all of them: a view should
+    /// read `drawing(of:)` instead.
+    public var trees: [String: Node] { drawings.compactMapValues(\.tree) }
+    /// The mods running, which regions follow.
+    public private(set) var names: Set<String> = []
+    /// Goes up with every redraw, for animations.
+    public private(set) var revision = 0
     public private(set) var stylesheet = Stylesheet()
-    public private(set) var problems: [String: Problem] = [:]
+    public internal(set) var problems: [String: Problem] = [:]
     /// Reloads that changed something, and how long the last one took.
     public private(set) var reloads = 0
     public private(set) var lastReload: Duration = .zero
@@ -32,11 +50,20 @@ public final class Workspace {
     }
 
     @ObservationIgnored private let limits: Limits
-    @ObservationIgnored private var modules: [String: Module] = [:]
+    @ObservationIgnored private var modules: [String: Module] = [:] {
+        didSet {
+            let running = Set(modules.keys)
+            if running != names { names = running }
+        }
+    }
+    @ObservationIgnored private var drawings: [String: Drawing] = [:]
+    /// Lazy views drawn this generation, per mod.
+    @ObservationIgnored private var parts: [String: (generation: Int, nodes: [PartKey: Node])] = [:]
+    @ObservationIgnored var providers: [String: ProviderSlot] = [:]
     /// What was last tried per file, so a broken file is not retried until
     /// it changes.
     @ObservationIgnored private var attempted: [String: String] = [:]
-    @ObservationIgnored private var queue: [Send] = []
+    @ObservationIgnored private var queue: [Queued] = []
     @ObservationIgnored private var draining = false
 
     public init(folders: Folders, limits: Limits = Limits()) {
@@ -48,7 +75,8 @@ public final class Workspace {
 
     /// Mods placed in `region`, in order.
     public func mods(in region: String) -> [String] {
-        modules.values.filter { $0.region == region }
+        _ = names
+        return modules.values.filter { $0.region == region }
             .sorted { ($0.order, $0.name) < ($1.order, $1.name) }
             .map(\.name)
     }
@@ -60,6 +88,39 @@ public final class Workspace {
 
     public func problem(of mod: String) -> Problem? {
         problems[file(of: mod)]
+    }
+
+    /// Bytes `mod`'s VM holds, state and code.
+    public func memory(of mod: String) -> Int? {
+        modules[mod]?.memory
+    }
+
+    /// What `mod` drew, to observe it alone.
+    public func drawing(of mod: String) -> Drawing {
+        if let drawing = drawings[mod] { return drawing }
+        let drawing = Drawing()
+        drawings[mod] = drawing
+        return drawing
+    }
+
+    /// One of the mod's `views`, for `key`: drawn on first ask in each
+    /// generation, then kept. A view that fails draws as a warning mark.
+    public func part(_ view: String, key: LuauValue, of mod: String) -> Node {
+        let generation = drawing(of: mod).generation
+        let id = PartKey(view: view, key: key)
+        if let cached = parts[mod], cached.generation == generation, let node = cached.nodes[id] {
+            return node
+        }
+        guard let module = modules[mod] else { return .invalid("no mod named \(mod)") }
+        let node: Node
+        do throws(LuauError) {
+            node = try module.part(view, key: key, context: context(for: module))
+        } catch {
+            node = .invalid(error.message)
+        }
+        if parts[mod]?.generation != generation { parts[mod] = (generation, [:]) }
+        parts[mod]?.nodes[id] = node
+        return node
     }
 
     // MARK: Reloading
@@ -87,7 +148,8 @@ public final class Workspace {
         for file in attempted.keys where file != Self.styleFile && folders.read(file) == nil {
             let name = file == "main.luau" ? Self.shell : file.split(separator: "/")[1].description
             modules[name] = nil
-            trees[name] = nil
+            drawings[name]?.tree = nil
+            parts[name] = nil
             problems[file] = nil
             attempted[file] = nil
             changed = true
@@ -114,9 +176,9 @@ public final class Workspace {
                 name: name, file: file, source: source, previous: try running?.snapshot(),
                 components: components, limits: limits, log: logger(for: name)
             )
-            let tree = try module.view(context)
+            let tree = try module.view(context(for: module))
             modules[name] = module
-            trees[name] = tree
+            show(tree, of: name)
             problems[file] = nil
         } catch {
             problems[file] = Problem(file: file, message: error.message)
@@ -158,7 +220,11 @@ public final class Workspace {
     /// Delivers `message` to the mod `to`, or to whoever subscribes to
     /// `topic:<name>`, and everything that sets off, then redraws.
     public func send(_ message: LuauValue, to: String) {
-        queue.append(Send(to: to, message: message))
+        send(message, to: to, from: nil)
+    }
+
+    func send(_ message: LuauValue, to: String, from: String?) {
+        queue.append(Queued(send: Send(to: to, message: message), from: from))
         guard !draining else { return }
         draining = true
         defer { draining = false }
@@ -173,7 +239,11 @@ public final class Workspace {
                 queue.removeAll()
                 break
             }
-            for (name, message) in recipients(of: next) {
+            if next.send.to.hasPrefix("provider:") {
+                deliverToProvider(next)
+                continue
+            }
+            for (name, message) in recipients(of: next.send) {
                 deliver(message, to: name)
                 touched.insert(name)
             }
@@ -191,24 +261,59 @@ public final class Workspace {
     private func deliver(_ message: LuauValue, to name: String) {
         guard let module = modules[name] else { return }
         do throws(LuauError) {
-            queue += try module.update(message)
+            queue += try module.update(message).map { Queued(send: $0, from: name) }
             problems[module.file] = nil
         } catch {
             problems[module.file] = Problem(file: module.file, message: error.message)
         }
     }
 
-    private func render(_ name: String) {
+    func render(_ name: String) {
         guard let module = modules[name] else { return }
         do throws(LuauError) {
-            let tree = try module.view(context)
-            if trees[name] != tree { trees[name] = tree }
+            show(try module.view(context(for: module)), of: name)
         } catch {
             problems[module.file] = Problem(file: module.file, message: error.message)
         }
     }
 
+    /// Puts up a mod's new tree, and marks its lazy views stale.
+    private func show(_ tree: Node, of name: String) {
+        let drawing = drawing(of: name)
+        drawing.generation += 1
+        if drawing.tree != tree { drawing.tree = tree }
+        revision += 1
+    }
+
     private func renderAll() {
         modules.keys.forEach(render)
     }
+
+    /// `app` as a mod sees it: the window, and the providers it reads.
+    func context(for module: Module) -> LuauValue {
+        guard case .table(let array, var fields) = context.value else { return context.value }
+        for name in module.providers {
+            fields[name] = providers[name]?.value ?? .emptyTable
+        }
+        return .table(array: array, fields: fields)
+    }
+
+    /// Redraws the mods that read provider `name`.
+    func providerChanged(_ name: String) {
+        for module in modules.values where module.providers.contains(name) {
+            render(module.name)
+        }
+    }
+}
+
+/// A lazy view of a mod, by name and key.
+struct PartKey: Hashable {
+    let view: String
+    let key: LuauValue
+}
+
+/// A send waiting to go, and the mod that sent it, if any.
+struct Queued {
+    let send: Send
+    let from: String?
 }

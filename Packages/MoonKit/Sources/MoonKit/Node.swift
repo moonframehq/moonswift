@@ -10,19 +10,35 @@ public struct AppContext: Equatable, Sendable {
         self.dark = dark
     }
 
-    var value: LuauValue {
+    public var value: LuauValue {
         .fields([
             "window": .fields(["width": .number(width), "height": .number(height)]),
             "appearance": .string(dark ? "dark" : "light"),
+            "platform": .string(Self.platform),
         ])
     }
+
+    #if os(iOS)
+    static let platform = "ios"
+    #else
+    static let platform = "macos"
+    #endif
 }
 
 /// An element of a checked tree. Anything a script gets wrong becomes an
 /// `.invalid` node, drawn as a small warning mark, never a blank window.
-public struct Node: Equatable, Sendable {
-    public enum Kind: String, Equatable, Sendable {
-        case row, column, panel, spacer, divider, text, badge, icon, button, input, toggle, slider, region, mount
+nonisolated public struct Node: Equatable, Sendable {
+    public enum Kind: String, Equatable, Sendable, CaseIterable {
+        // Layout.
+        case row, column, panel, spacer, divider, scroll, grid
+        // Navigation and lists.
+        case stack, tabs, tab, split, list, section, form, link, disclosure
+        // Content.
+        case text, label, badge, icon, image, progress, unavailable
+        // Controls.
+        case button, input, secure, editor, toggle, slider, stepper, picker, menu
+        // The host's: other mods, and views the app registers natively.
+        case region, mount, native
         case invalid
     }
 
@@ -33,8 +49,17 @@ public struct Node: Equatable, Sendable {
     public let line: Int?
     /// Why this is `.invalid`.
     public let problem: String?
+    /// A hash of this whole subtree, made once as it is checked. Two trees
+    /// with the same digest are taken as equal, so comparing a tree with the
+    /// last one costs one integer however big it is, and a view can skip a
+    /// subtree that didn't change without walking it.
+    public let digest: Int
 
-    init(_ value: LuauValue) {
+    public static func == (lhs: Node, rhs: Node) -> Bool {
+        lhs.digest == rhs.digest
+    }
+
+    public init(_ value: LuauValue) {
         guard case .table(let array, var fields) = value else {
             self = .invalid("expected an element, got \(value.summary)")
             return
@@ -49,6 +74,7 @@ public struct Node: Equatable, Sendable {
             props = [:]
             children = []
             problem = "no element named \(name)"
+            digest = Self.digest(kind: .invalid, props: [:], children: [], extra: name)
             return
         }
         self.kind = kind
@@ -56,6 +82,7 @@ public struct Node: Equatable, Sendable {
         // `flag and ui.text { ... }` leaves false in the list: that's nothing.
         children = array.filter { $0 != .bool(false) }.map(Node.init)
         problem = nil
+        digest = Self.digest(kind: kind, props: fields, children: children, extra: line.map(String.init))
     }
 
     private init(invalid problem: String) {
@@ -64,9 +91,20 @@ public struct Node: Equatable, Sendable {
         children = []
         line = nil
         self.problem = problem
+        digest = Self.digest(kind: .invalid, props: [:], children: [], extra: problem)
     }
 
-    static func invalid(_ problem: String) -> Node {
+    private static func digest(kind: Kind, props: [String: LuauValue], children: [Node], extra: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(kind)
+        hasher.combine(props)
+        hasher.combine(extra)
+        hasher.combine(children.count)
+        for child in children { hasher.combine(child.digest) }
+        return hasher.finalize()
+    }
+
+    public static func invalid(_ problem: String) -> Node {
         Node(invalid: problem)
     }
 
@@ -77,10 +115,10 @@ public struct Node: Equatable, Sendable {
     /// The text this element shows, if any.
     public var text: String? {
         switch kind {
-        case .text, .badge: string("text")
-        case .button, .toggle: string("label")
-        case .icon: string("name")
-        case .input: string("placeholder")
+        case .text, .badge, .label, .link: string("text")
+        case .button, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
+        case .icon, .native: string("name")
+        case .input, .secure, .editor: string("placeholder")
         case .region: string("name")
         case .mount: string("mod")
         default: string("title")
@@ -115,4 +153,37 @@ public struct Node: Equatable, Sendable {
     public var problems: [String] {
         (kind == .invalid ? [problem ?? "bad element"] : []) + children.flatMap(\.problems)
     }
+}
+
+nonisolated extension Node {
+    /// Elements held in a prop rather than as children, such as a row's
+    /// `swipe` buttons or a view's `toolbar`: a list of them, or just one.
+    public func elements(_ key: String) -> [Node] {
+        guard let value = props[key] else { return [] }
+        if value["type"] != nil { return [Node(value)] }
+        return (value.array ?? []).filter { $0 != .bool(false) }.map(Node.init)
+    }
+
+    /// A prop that is an overlay: `{ open = ..., dismiss = ..., <element> }`,
+    /// as `sheet` and `alert`. Its elements are its list part.
+    public func overlay(_ key: String) -> Overlay? {
+        guard case .table(let array, let fields)? = props[key] else { return nil }
+        return Overlay(fields: fields, content: array.filter { $0 != .bool(false) }.map(Node.init))
+    }
+
+    /// Lazy rows: `rows` lists their keys, `row` names the mod's view that
+    /// draws one.
+    public var lazyRows: (keys: [LuauValue], view: String)? {
+        guard let view = string("row"), let keys = props["rows"]?.array else { return nil }
+        return (keys, view)
+    }
+}
+
+/// A sheet, alert or dialog a view asks for, open or not.
+nonisolated public struct Overlay: Equatable, Sendable {
+    public let fields: [String: LuauValue]
+    public let content: [Node]
+
+    public var open: Bool { fields["open"]?.bool ?? false }
+    public func string(_ key: String) -> String? { fields[key]?.string }
 }

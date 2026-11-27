@@ -26,15 +26,21 @@ local function element(kind: string, primary: string?)
 end
 
 local ui = {}
-for _, kind in { "row", "column", "panel", "spacer", "divider", "input", "toggle", "slider" } do
-	ui[kind] = element(kind)
+-- Each element, and the prop its first list item stands for, if any:
+-- `ui.text { "hi" }` is `ui.text { text = "hi" }`.
+for kind, primary in {
+	row = false, column = false, panel = false, spacer = false, divider = false,
+	scroll = false, grid = false, stack = false, tabs = false, split = false,
+	list = false, form = false, image = false, progress = false,
+	text = "text", badge = "text", label = "text", link = "text", tab = "text", unavailable = "text",
+	section = "title",
+	button = "label", toggle = "label", slider = "label", stepper = "label", picker = "label",
+	menu = "label", disclosure = "label",
+	input = "placeholder", secure = "placeholder", editor = "placeholder",
+	icon = "name", native = "name", region = "name", mount = "mod",
+} do
+	ui[kind] = element(kind, if primary then primary else nil)
 end
-ui.text = element("text", "text")
-ui.badge = element("badge", "text")
-ui.icon = element("icon", "name")
-ui.button = element("button", "label")
-ui.region = element("region", "name")
-ui.mount = element("mount", "mod")
 
 local function mod(definition: any)
 	if type(definition) ~= "table" then

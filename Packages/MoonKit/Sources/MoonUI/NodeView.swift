@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Where an element sits: its mod, its path in that mod's tree, and the
 /// elements around it, across mods, outermost first.
-public struct Scope: Equatable, Sendable {
+nonisolated public struct Scope: Equatable, Hashable, Sendable {
     public let mod: String
     public let path: String
     public let trail: [Crumb]
@@ -20,7 +20,7 @@ public struct Scope: Equatable, Sendable {
 }
 
 /// One element around a pick.
-public struct Crumb: Equatable, Hashable, Sendable {
+nonisolated public struct Crumb: Equatable, Hashable, Sendable {
     public let mod: String
     public let path: String
     public let label: String
@@ -55,7 +55,8 @@ extension EnvironmentValues {
 }
 
 /// A mod's tree, its warning mark while its last edit is broken, and a note
-/// in its place if it never loaded.
+/// in its place if it never loaded. It follows that mod's drawing alone, so
+/// another mod's update doesn't reach it.
 struct ModView: View {
     let name: String
     var trail: [Crumb] = []
@@ -63,8 +64,9 @@ struct ModView: View {
     @Environment(Workspace.self) private var workspace
 
     var body: some View {
-        if let tree = workspace.trees[name] {
+        if let tree = workspace.drawing(of: name).tree {
             NodeView(node: tree, scope: Scope(mod: name, path: "", trail: trail))
+                .equatable()
                 .overlay(alignment: .topTrailing) {
                     if let problem = workspace.problem(of: name) {
                         WarningMark(text: problem.message).padding(6)
@@ -80,6 +82,22 @@ struct ModView: View {
     }
 }
 
+/// One of a mod's `views`, drawn when SwiftUI shows it: a list's row or a
+/// pushed screen. It follows the mod's generation, and its tree is compared
+/// by digest, so a row whose look didn't change costs one Luau call.
+struct PartView: View {
+    let view: String
+    let key: LuauValue
+    let scope: Scope
+
+    @Environment(Workspace.self) private var workspace
+
+    var body: some View {
+        let node = workspace.part(view, key: key, of: scope.mod)
+        NodeView(node: node, scope: scope).equatable()
+    }
+}
+
 struct WarningMark: View {
     let text: String
 
@@ -90,17 +108,22 @@ struct WarningMark: View {
     }
 }
 
-/// Draws one element and, through itself, everything under it.
-struct NodeView: View {
+/// Draws one element and, through itself, everything under it. Equal by
+/// digest: SwiftUI skips a subtree whose tree didn't change.
+struct NodeView: View, Equatable {
     let node: Node
     let scope: Scope
 
-    @Environment(Workspace.self) private var workspace
+    @Environment(Workspace.self) var workspace
     @Environment(\.elementTracker) private var tracker
     @Environment(\.colorScheme) private var scheme
     @State private var hovered = false
 
-    private var dark: Bool { scheme == .dark }
+    nonisolated static func == (lhs: NodeView, rhs: NodeView) -> Bool {
+        lhs.node.digest == rhs.node.digest && lhs.scope == rhs.scope
+    }
+
+    var dark: Bool { scheme == .dark }
 
     var body: some View {
         switch node.kind {
@@ -114,45 +137,29 @@ struct NodeView: View {
         // Bare: wrapped in modifiers, a stack no longer treats it as a spacer
         // and it stretches both ways.
         case .spacer:
-            Spacer(minLength: 0)
+            Spacer(minLength: node.number("min").map { CGFloat($0) } ?? 0)
+        // The system's own containers: their look is the platform's, and a
+        // box around them would break what they expect of their children.
+        case .stack, .tabs, .tab, .split, .list, .form, .section:
+            container
+                .modifier(Decorations(node: node, scope: scope, send: send))
+                .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
         default:
             styled(workspace.stylesheet.resolve(node, hovered: hovered))
         }
     }
 
-    private var crumb: Crumb {
+    var crumb: Crumb {
         Crumb(mod: scope.mod, path: scope.path, label: node.label)
     }
 
     private func styled(_ style: StyleRule) -> some View {
         let sheet = workspace.stylesheet
-        let shape = RoundedRectangle(cornerRadius: style.radius ?? 0, style: .continuous)
         return content(style)
-            .padding(EdgeInsets(style.padding))
-            .frame(
-                width: node.number("width").map { CGFloat($0) },
-                height: node.number("height").map { CGFloat($0) },
-                alignment: .topLeading
-            )
-            .frame(
-                maxWidth: fills ? .infinity : nil,
-                maxHeight: node.growsTall ? .infinity : nil,
-                alignment: .topLeading
-            )
-            .foregroundStyle(sheet.paint(style.color, dark: dark).map(AnyShapeStyle.init) ?? AnyShapeStyle(.foreground))
-            .background(sheet.paint(style.background, dark: dark) ?? .clear, in: shape)
-            .overlay {
-                if let border = sheet.paint(style.border, dark: dark) {
-                    shape.strokeBorder(border, lineWidth: 1)
-                }
-            }
-            .modifier(Glass(on: style.glass ?? false, shape: shape))
-            .shadow(color: .black.opacity(style.shadow == nil ? 0 : 0.18), radius: style.shadow ?? 0, y: (style.shadow ?? 0) / 3)
-            .opacity(style.opacity ?? 1)
-            .padding(EdgeInsets(style.margin))
+            .modifier(Box(style: style, node: node, sheet: sheet, dark: dark, fills: fills))
             .modifier(Tap(node: node, send: send))
-            .help(node.string("tooltip") ?? "")
-            .onHover { hovered = $0 }
+            .modifier(Hover(on: sheet.hovers(Stylesheet.selectors(of: node)), hovered: $hovered))
+            .modifier(Decorations(node: node, scope: scope, send: send))
             .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
     }
 
@@ -160,79 +167,133 @@ struct NodeView: View {
         node.growsWide || node.kind == .panel
     }
 
-    @ViewBuilder
-    private func content(_ style: StyleRule) -> some View {
-        switch node.kind {
-        case .row:
-            HStack(alignment: node.verticalAlignment, spacing: node.spacing) { children }
-        case .column:
-            scrolling {
-                VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { children }
-            }
-        case .panel:
-            scrolling {
-                VStack(alignment: .leading, spacing: node.spacing) {
-                    if let title = node.string("title") { panelTitle(title) }
-                    children
-                }
-            }
-        case .divider:
-            Divider()
-        case .text:
-            Text(node.string("text") ?? "")
-                .font(font(style))
-                .contentTransition(node.flag("numeric") ? .numericText() : .identity)
-                .accessibilityIdentifier(identifier)
-        case .badge:
-            Text(node.string("text") ?? "").font(font(style))
-        case .icon:
-            Image(systemName: node.string("name") ?? "questionmark").font(font(style))
-        case .button:
-            ButtonNode(node: node, identifier: identifier, send: send)
-        case .input, .toggle, .slider:
-            ControlNode(node: node, identifier: identifier, send: send)
-        case .invalid:
-            WarningMark(text: node.problem ?? "bad element")
-        case .region, .mount, .spacer:
-            EmptyView()
-        }
-    }
-
     /// Every element is findable by `id`, or by where it sits.
-    private var identifier: String {
+    var identifier: String {
         node.string("id") ?? scope.key
     }
 
-    private var children: some View {
-        ForEach(Array(node.children.enumerated()), id: \.offset) { index, child in
-            NodeView(node: child, scope: scope.child(child.identity(at: index)))
-                .id(child.identity(at: index))
-        }
-    }
-
-    @ViewBuilder
-    private func scrolling(@ViewBuilder _ stack: () -> some View) -> some View {
-        if node.flag("scroll") {
-            ScrollView { stack().frame(maxWidth: .infinity, alignment: .leading) }
-        } else {
-            stack()
-        }
-    }
-
-    private func panelTitle(_ title: String) -> some View {
-        let style = workspace.stylesheet.resolve(selector: "panel-title")
-        return Text(title.uppercased())
-            .font(font(style))
-            .foregroundStyle(workspace.stylesheet.paint(style.color, dark: dark) ?? .secondary)
-    }
-
-    private func font(_ style: StyleRule) -> Font {
-        .system(size: style.size ?? 13, weight: Font.Weight(name: style.weight) ?? .regular)
+    func font(_ style: StyleRule) -> Font? {
+        Font(style)
     }
 
     /// Controls report to their own mod unless `to` names another.
-    private func send(_ message: LuauValue) {
+    func send(_ message: LuauValue) {
         workspace.send(message, to: node.string("to") ?? scope.mod)
+    }
+}
+
+/// A node's children, each by its identity, and its lazy rows after them.
+struct Children: View {
+    let node: Node
+    let scope: Scope
+
+    var body: some View {
+        ForEach(Identified.of(node.children)) { child in
+            NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                .tag(child.node.props["key"] ?? .string(child.id))
+        }
+        if let rows = node.lazyRows {
+            LazyRows(keys: rows.keys, view: rows.view, scope: scope)
+        }
+    }
+}
+
+/// Rows a mod draws on demand: SwiftUI asks only for those it shows.
+struct LazyRows: View {
+    let keys: [LuauValue]
+    let view: String
+    let scope: Scope
+
+    var body: some View {
+        ForEach(keys, id: \.self) { key in
+            PartView(view: view, key: key, scope: scope.child("\(view):\(key.summary)"))
+                .tag(key)
+        }
+    }
+}
+
+/// Children with identities unique among their siblings: a repeated `key`
+/// gets its position added, so SwiftUI never sees two alike.
+struct Identified: Identifiable {
+    let id: String
+    let node: Node
+
+    static func of(_ nodes: [Node]) -> [Identified] {
+        var seen: Set<String> = []
+        return nodes.enumerated().map { index, node in
+            var id = node.identity(at: index)
+            if !seen.insert(id).inserted { id += "#\(index)" }
+            return Identified(id: id, node: node)
+        }
+    }
+}
+
+/// The box rules draw: padding, size, colors, corners, glass and shadow,
+/// each only if set, so a plain element costs no extra views.
+private struct Box: ViewModifier {
+    let style: StyleRule
+    let node: Node
+    let sheet: Stylesheet
+    let dark: Bool
+    let fills: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: style.radius ?? 0, style: .continuous)
+        content
+            .padding(EdgeInsets(style.padding))
+            .frame(
+                width: node.number("width").map { CGFloat($0) },
+                height: node.number("height").map { CGFloat($0) },
+                alignment: frameAlignment
+            )
+            .frame(
+                maxWidth: fills ? .infinity : nil,
+                maxHeight: node.growsTall ? .infinity : nil,
+                alignment: frameAlignment
+            )
+            .foregroundStyle(sheet.paint(style.color, dark: dark).map(AnyShapeStyle.init) ?? AnyShapeStyle(.foreground))
+            .background {
+                if let background = sheet.paint(style.background, dark: dark) {
+                    shape.fill(background)
+                }
+            }
+            .overlay {
+                if let border = sheet.paint(style.border, dark: dark) {
+                    shape.strokeBorder(border, lineWidth: 1)
+                }
+            }
+            .modifier(Glass(on: style.glass ?? false, shape: shape))
+            .modifier(Shadow(radius: style.shadow))
+            .opacity(style.opacity ?? 1)
+            .padding(EdgeInsets(style.margin))
+    }
+
+    private var frameAlignment: Alignment { .topLeading }
+}
+
+private struct Shadow: ViewModifier {
+    let radius: Double?
+
+    func body(content: Content) -> some View {
+        if let radius {
+            content.shadow(color: .black.opacity(0.18), radius: radius, y: radius / 3)
+        } else {
+            content
+        }
+    }
+}
+
+/// Follows the pointer only where a `:hover` rule could use it.
+private struct Hover: ViewModifier {
+    let on: Bool
+    @Binding var hovered: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content.onHover { hovered = $0 }
+        } else {
+            content
+        }
     }
 }
 
@@ -284,6 +345,9 @@ private struct Tap: ViewModifier {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(node.string("id") ?? "")
+            .help(node.string("tooltip") ?? "")
+        } else if let tooltip = node.string("tooltip") {
+            content.help(tooltip)
         } else {
             content
         }

@@ -31,6 +31,10 @@ public struct StyleRule: Equatable, Sendable {
     public var radius: Double?
     public var size: Double?
     public var weight: String?
+    /// A text style, as `headline` or `caption`, which follows Dynamic Type.
+    public var font: String?
+    /// `monospaced`, `rounded` or `serif`.
+    public var design: String?
     public var opacity: Double?
     public var shadow: Double?
     public var padding: Edges?
@@ -47,6 +51,8 @@ public struct StyleRule: Equatable, Sendable {
         radius = value?["radius"]?.number
         size = value?["size"]?.number
         weight = value?["weight"]?.string
+        font = value?["font"]?.string
+        design = value?["design"]?.string
         opacity = value?["opacity"]?.number
         shadow = value?["shadow"]?.number
         padding = Edges(value?["padding"])
@@ -61,6 +67,8 @@ public struct StyleRule: Equatable, Sendable {
         radius = other.radius ?? radius
         size = other.size ?? size
         weight = other.weight ?? weight
+        font = other.font ?? font
+        design = other.design ?? design
         opacity = other.opacity ?? opacity
         shadow = other.shadow ?? shadow
         padding = other.padding ?? padding

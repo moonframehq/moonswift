@@ -34,6 +34,9 @@ final class Module {
     let region: String?
     let order: Double
     let subscriptions: [String]
+    /// The providers whose data this mod reads as `app.<name>`; only these
+    /// redraw it when they change.
+    let providers: [String]
 
     private let vm: LuauVM
     private let definition: Int32
@@ -65,6 +68,7 @@ final class Module {
         let region = try setting("region")?.string
         let order = try setting("order")?.number ?? 0
         let subscriptions = try setting("subscribe")?.array?.compactMap(\.string) ?? []
+        let providers = try setting("providers")?.array?.compactMap(\.string) ?? []
 
         let state: Int32 = try vm.balanced { () throws(LuauError) in
             vm.pushReference(definition)
@@ -92,7 +96,10 @@ final class Module {
         self.region = region
         self.order = order
         self.subscriptions = subscriptions
+        self.providers = providers
     }
+
+    var memory: Int { vm.memory }
 
     /// The state as plain data, to hand to the next version of this module.
     func snapshot() throws(LuauError) -> LuauValue? {
@@ -126,14 +133,32 @@ final class Module {
     }
 
     /// `view(state, app)`, checked into a tree.
-    func view(_ context: AppContext) throws(LuauError) -> Node {
+    func view(_ context: LuauValue) throws(LuauError) -> Node {
         try vm.balanced { () throws(LuauError) in
             vm.pushReference(definition)
             vm.pushRawField("view")
             vm.pushReference(state)
-            vm.push(context.value)
+            vm.push(context)
             try vm.call(arguments: 2, results: 1)
             guard let tree = try vm.read() else { throw LuauError("\(file): view returned nothing") }
+            return Node(tree)
+        }
+    }
+
+    /// `views[name](state, key, app)`: one of the mod's named views, which
+    /// the host draws lazily, such as a list's rows or a stack's screens.
+    func part(_ name: String, key: LuauValue, context: LuauValue) throws(LuauError) -> Node {
+        try vm.balanced { () throws(LuauError) in
+            vm.pushReference(definition)
+            vm.pushRawField("views")
+            guard vm.topIsTable else { throw LuauError("\(file): no views table for \(name)") }
+            vm.pushRawField(name)
+            guard vm.topIsFunction else { throw LuauError("\(file): no view named \(name) in views") }
+            vm.pushReference(state)
+            vm.push(key)
+            vm.push(context)
+            try vm.call(arguments: 3, results: 1)
+            guard let tree = try vm.read() else { throw LuauError("\(file): views.\(name) returned nothing") }
             return Node(tree)
         }
     }

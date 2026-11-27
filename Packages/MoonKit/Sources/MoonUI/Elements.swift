@@ -1,0 +1,309 @@
+import MoonKit
+import SwiftUI
+
+/// What each element draws inside its box.
+extension NodeView {
+    @ViewBuilder
+    func content(_ style: StyleRule) -> some View {
+        switch node.kind {
+        case .row:
+            HStack(alignment: node.verticalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+        case .column:
+            scrolling {
+                VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+            }
+        case .panel:
+            scrolling {
+                VStack(alignment: .leading, spacing: node.spacing) {
+                    if let title = node.string("title") { panelTitle(title) }
+                    Children(node: node, scope: scope)
+                }
+            }
+        case .scroll:
+            ScrollNode(node: node, scope: scope)
+        case .grid:
+            GridNode(node: node, scope: scope)
+        case .divider:
+            Divider()
+        case .text:
+            TextNode(node: node, identifier: identifier).font(font(style))
+        case .label:
+            LabelNode(node: node).font(font(style))
+        case .badge:
+            Text(verbatim: node.string("text") ?? "").font(font(style))
+        case .icon:
+            IconNode(node: node).font(font(style))
+        case .image:
+            ImageNode(node: node)
+        case .progress:
+            ProgressNode(node: node)
+        case .unavailable:
+            UnavailableNode(node: node, scope: scope)
+        case .link:
+            LinkNode(node: node, scope: scope, identifier: identifier, send: send)
+        case .disclosure:
+            DisclosureNode(node: node, scope: scope, send: send)
+        case .button:
+            ButtonNode(node: node, identifier: identifier, send: send)
+        case .input, .secure, .editor, .toggle, .slider, .stepper, .picker:
+            ControlNode(node: node, identifier: identifier, send: send)
+        case .menu:
+            MenuNode(node: node, scope: scope, identifier: identifier, send: send)
+        case .native:
+            NativeNode(node: node, send: send)
+        case .invalid:
+            WarningMark(text: node.problem ?? "bad element")
+        case .region, .mount, .spacer, .stack, .tabs, .tab, .split, .list, .form, .section:
+            EmptyView()
+        }
+    }
+
+    /// The system's containers, drawn bare.
+    @ViewBuilder
+    var container: some View {
+        switch node.kind {
+        case .stack: StackNode(node: node, scope: scope, send: send)
+        case .tabs: TabsNode(node: node, scope: scope, send: send)
+        case .split: SplitNode(node: node, scope: scope)
+        case .list: ListNode(node: node, scope: scope, send: send)
+        case .form: FormNode(node: node, scope: scope)
+        // Outside a list or form, a section is just its rows.
+        case .section, .tab: VStack(alignment: .leading) { Children(node: node, scope: scope) }
+        default: EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func scrolling(@ViewBuilder _ stack: () -> some View) -> some View {
+        if node.flag("scroll") {
+            ScrollView { stack().frame(maxWidth: .infinity, alignment: .leading) }
+        } else {
+            stack()
+        }
+    }
+
+    private func panelTitle(_ title: String) -> some View {
+        let style = workspace.stylesheet.resolve(selector: "panel-title")
+        return Text(title.uppercased())
+            .font(font(style))
+            .foregroundStyle(workspace.stylesheet.paint(style.color, dark: dark) ?? .secondary)
+    }
+}
+
+/// `ui.text`: a string, markdown, or a date the system keeps current, such
+/// as `{ date = t, format = "relative" }`, with no timer in Luau.
+struct TextNode: View {
+    let node: Node
+    let identifier: String
+
+    var body: some View {
+        text
+            .lineLimit(node.number("lines").map(Int.init))
+            .multilineTextAlignment(alignment)
+            .contentTransition(node.flag("numeric") ? .numericText() : .identity)
+            .modifier(Selectable(on: node.flag("selectable")))
+            .accessibilityIdentifier(identifier)
+    }
+
+    private var text: Text {
+        if let seconds = node.number("date") {
+            let date = Date(timeIntervalSince1970: seconds)
+            switch node.string("format") {
+            case "relative": return Text(date, style: .relative)
+            case "timer": return Text(date, style: .timer)
+            case "offset": return Text(date, style: .offset)
+            case "time": return Text(date, style: .time)
+            case "date": return Text(date, style: .date)
+            case "ago": return Text(date, format: .relative(presentation: .named))
+            default: return Text(date, format: .dateTime)
+            }
+        }
+        let string = node.string("text") ?? ""
+        if node.flag("markdown"), let attributed = try? AttributedString(
+            markdown: string, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            return Text(attributed)
+        }
+        return Text(verbatim: string)
+    }
+
+    private var alignment: TextAlignment {
+        switch node.string("align") {
+        case "center": .center
+        case "end": .trailing
+        default: .leading
+        }
+    }
+}
+
+private struct Selectable: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.textSelection(.enabled) } else { content }
+    }
+}
+
+/// `ui.label { "Settings", icon = "gear" }`: the system's text and icon.
+struct LabelNode: View {
+    let node: Node
+
+    var body: some View {
+        let label = Label {
+            Text(verbatim: node.string("text") ?? "")
+        } icon: {
+            IconNode(node: node, key: "icon")
+        }
+        switch node.string("variant") {
+        case "icon": label.labelStyle(.iconOnly)
+        case "title": label.labelStyle(.titleOnly)
+        case "both": label.labelStyle(.titleAndIcon)
+        default: label
+        }
+    }
+}
+
+/// An SF Symbol, with its color and rendering mode.
+struct IconNode: View {
+    let node: Node
+    var key = "name"
+
+    @Environment(Workspace.self) private var workspace
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let image = Image(systemName: node.string(key) ?? "questionmark")
+            .symbolRenderingMode(rendering)
+            .symbolVariant(node.flag("fill") ? .fill : .none)
+        if let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark) {
+            image.foregroundStyle(tint)
+        } else {
+            image
+        }
+    }
+
+    private var rendering: SymbolRenderingMode? {
+        switch node.string("rendering") {
+        case "multicolor": .multicolor
+        case "hierarchical": .hierarchical
+        case "palette": .palette
+        case "monochrome": .monochrome
+        default: nil
+        }
+    }
+}
+
+/// A picture from a URL, the asset catalog, or a symbol, fitted or filled.
+struct ImageNode: View {
+    let node: Node
+
+    var body: some View {
+        if let url = node.string("url").flatMap(URL.init(string:)) {
+            AsyncImage(url: url) { image in
+                fitted(image.resizable())
+            } placeholder: {
+                ProgressView()
+            }
+        } else if let asset = node.string("asset") {
+            fitted(Image(asset).resizable())
+        } else {
+            Image(systemName: node.string("symbol") ?? "photo")
+        }
+    }
+
+    @ViewBuilder
+    private func fitted(_ image: Image) -> some View {
+        if node.string("fit") == "fill" {
+            image.scaledToFill().clipped()
+        } else {
+            image.scaledToFit()
+        }
+    }
+}
+
+/// `ui.progress {}` spins; with `value` (0 to `total`, 1 by default) it fills.
+struct ProgressNode: View {
+    let node: Node
+
+    var body: some View {
+        let label = node.string("label")
+        let view = Group {
+            if let value = node.number("value") {
+                ProgressView(value: value, total: node.number("total") ?? 1) {
+                    if let label { Text(verbatim: label) }
+                }
+            } else {
+                ProgressView {
+                    if let label { Text(verbatim: label) }
+                }
+            }
+        }
+        switch node.string("variant") {
+        case "circular": view.progressViewStyle(.circular)
+        case "linear": view.progressViewStyle(.linear)
+        default: view
+        }
+    }
+}
+
+/// An empty state: `ui.unavailable { "No Sessions", icon = ..., description = ... }`,
+/// with any children as its actions. `variant = "search"` is the system's
+/// "No results for …".
+struct UnavailableNode: View {
+    let node: Node
+    let scope: Scope
+
+    var body: some View {
+        if node.string("variant") == "search" {
+            ContentUnavailableView.search(text: node.string("query") ?? "")
+        } else {
+            ContentUnavailableView {
+                Label(node.string("text") ?? "", systemImage: node.string("icon") ?? "tray")
+            } description: {
+                if let description = node.string("description") { Text(verbatim: description) }
+            } actions: {
+                Children(node: node, scope: scope)
+            }
+        }
+    }
+}
+
+/// A view the app registers in Swift, for what Luau can't draw well: a
+/// terminal, a web page, a map. Unknown names draw as a warning mark.
+struct NativeNode: View {
+    let node: Node
+    let send: (LuauValue) -> Void
+
+    @Environment(\.nativeViews) private var natives
+
+    var body: some View {
+        let name = node.string("name") ?? ""
+        if let make = natives.makers[name] {
+            make(NativeContext(node: node, send: send))
+        } else {
+            WarningMark(text: "no native view named \(name)")
+        }
+    }
+}
+
+/// The native views an app offers Luau, by name.
+public struct NativeViews: Sendable {
+    public typealias Maker = @MainActor @Sendable (NativeContext) -> AnyView
+    var makers: [String: Maker] = [:]
+
+    public init() {}
+
+    public mutating func register(_ name: String, _ make: @escaping Maker) {
+        makers[name] = make
+    }
+}
+
+/// What a native view gets: its element, and a way to send its mod messages.
+public struct NativeContext {
+    public let node: Node
+    public let send: (LuauValue) -> Void
+}
+
+extension EnvironmentValues {
+    @Entry public var nativeViews = NativeViews()
+}

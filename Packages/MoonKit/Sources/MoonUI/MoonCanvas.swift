@@ -14,7 +14,7 @@ public struct MoonCanvas: View {
         ModView(name: Workspace.shell)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .coordinateSpace(.named(Self.space))
-            .animation(.smooth(duration: 0.22), value: workspace.trees)
+            .animation(.smooth(duration: 0.22), value: workspace.revision)
             .animation(.smooth(duration: 0.22), value: workspace.stylesheet)
             .background(alignment: .center) {
                 // The shell's color runs on under the system bars.

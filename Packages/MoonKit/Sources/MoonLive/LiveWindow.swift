@@ -24,20 +24,45 @@ public struct LiveWindow: View {
         .animation(.smooth(duration: 0.2), value: inspection.selection == nil)
         .toolbar { tools }
         #else
-        NavigationStack {
-            canvas
-                .toolbar { tools }
-                .toolbarTitleDisplayMode(.inline)
-                .sheet(isPresented: inspectorShown) {
-                    if let selection = inspection.selection {
-                        InspectorPanel(selection: selection)
-                            .presentationDetents([.medium, .large])
-                            // The app stays usable beside it, to see edits land.
-                            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        Group {
+            if navigates {
+                // The app has its own bars: the host's tools float over it.
+                canvas.overlay(alignment: .bottomLeading) {
+                    HStack(spacing: 4) {
+                        ReloadStatus()
+                        Sparkle().labelStyle(.iconOnly)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.leading, 12)
+                    .padding(.bottom, 64)
                 }
+            } else {
+                NavigationStack {
+                    canvas
+                        .toolbar { tools }
+                        .toolbarTitleDisplayMode(.inline)
+                }
+            }
+        }
+        .sheet(isPresented: inspectorShown) {
+            if let selection = inspection.selection {
+                InspectorPanel(selection: selection)
+                    .presentationDetents([.medium, .large])
+                    // The app stays usable beside it, to see edits land.
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            }
         }
         #endif
+    }
+
+    /// Whether the shell draws its own navigation, which can't sit in ours.
+    private var navigates: Bool {
+        switch workspace.drawing(of: Workspace.shell).tree?.kind {
+        case .stack?, .tabs?, .split?: true
+        default: false
+        }
     }
 
     @ToolbarContentBuilder

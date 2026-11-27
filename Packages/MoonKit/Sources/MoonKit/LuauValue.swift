@@ -1,6 +1,6 @@
 /// Plain data that crosses between Luau and Swift: messages, a mod's state
 /// across reloads, and trees. Functions and userdata stay in the VM.
-public enum LuauValue: Equatable, Hashable, Sendable {
+nonisolated public enum LuauValue: Equatable, Hashable, Sendable {
     case bool(Bool)
     case number(Double)
     case string(String)

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// `{ msg = change, value = value }`, or `change` with `value` added if it's
 /// a table already, as Moonframe's controls report.
-private func event(_ message: LuauValue?, value: LuauValue) -> LuauValue? {
+func event(_ message: LuauValue?, value: LuauValue) -> LuauValue? {
     switch message {
     case nil: nil
     case .table(let array, var fields)?:
@@ -18,23 +18,65 @@ struct ButtonNode: View {
     let send: (LuauValue) -> Void
 
     var body: some View {
-        let button = Button {
+        let button = Button(role: node.role) {
             if let message = node.props["msg"] { send(message) }
         } label: {
-            if let icon = node.string("icon") {
-                Label(node.string("label") ?? "", systemImage: icon)
-            } else {
-                Text(node.string("label") ?? "")
-            }
+            ButtonLabel(node: node)
         }
         .disabled(node.flag("disabled"))
         .accessibilityIdentifier(identifier)
+        .controlSize(node.controlSize)
 
         switch node.string("variant") {
         case "primary": button.buttonStyle(.borderedProminent)
         case "glass": button.buttonStyle(.glass)
+        case "prominentGlass": button.buttonStyle(.glassProminent)
         case "plain": button.buttonStyle(.plain)
+        case "borderless": button.buttonStyle(.borderless)
+        case "bordered": button.buttonStyle(.bordered)
+        // In lists, menus and toolbars the system's own look fits best.
+        case nil where node.props["place"] != nil: button
         default: button.buttonStyle(.bordered)
+        }
+    }
+}
+
+/// A button's text and icon, as menus, toolbars and swipes show them.
+struct ButtonLabel: View {
+    let node: Node
+
+    var body: some View {
+        if let icon = node.string("icon") {
+            if node.string("label") == nil {
+                Image(systemName: icon)
+            } else {
+                Label(node.string("label") ?? "", systemImage: icon)
+            }
+        } else {
+            Text(verbatim: node.string("label") ?? "")
+        }
+    }
+}
+
+extension Node {
+    /// `role = "destructive"` or `"cancel"`, and `"confirm"` where it is.
+    var role: ButtonRole? {
+        switch string("role") {
+        case "destructive": .destructive
+        case "cancel": .cancel
+        case "confirm": .confirm
+        case "close": .close
+        default: nil
+        }
+    }
+
+    var controlSize: ControlSize {
+        switch string("size") {
+        case "mini": .mini
+        case "small": .small
+        case "large": .large
+        case "extraLarge": .extraLarge
+        default: .regular
         }
     }
 }
@@ -48,7 +90,9 @@ struct ControlNode: View {
 
     var body: some View {
         switch node.kind {
-        case .input: InputNode(node: node, identifier: identifier, send: send)
+        case .input, .secure, .editor: InputNode(node: node, identifier: identifier, send: send)
+        case .stepper: StepperNode(node: node, identifier: identifier, send: send)
+        case .picker: PickerNode(node: node, identifier: identifier, send: send)
         case .toggle:
             Toggle(node.string("label") ?? "", isOn: Binding {
                 node.flag("value")
@@ -81,9 +125,9 @@ private struct InputNode: View {
     @State private var text = ""
 
     var body: some View {
-        TextField(node.string("placeholder") ?? "", text: $text)
-            .textFieldStyle(.roundedBorder)
+        field
             .accessibilityIdentifier(identifier)
+            .disabled(node.flag("disabled"))
             .onChange(of: node.string("value") ?? "", initial: true) { _, value in
                 if value != text { text = value }
             }
@@ -95,5 +139,115 @@ private struct InputNode: View {
             .onSubmit {
                 event(node.props["submit"], value: .string(text)).map(send)
             }
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        let placeholder = node.string("placeholder") ?? ""
+        switch node.kind {
+        case .secure:
+            bordered(SecureField(placeholder, text: $text))
+        case .editor:
+            TextEditor(text: $text)
+                .frame(minHeight: node.number("minHeight").map { CGFloat($0) } ?? 80)
+        default:
+            bordered(
+                TextField(placeholder, text: $text, axis: node.flag("multiline") ? .vertical : .horizontal)
+                    .lineLimit(node.flag("multiline") ? 1...(node.number("lines").map(Int.init) ?? 6) : 1...1)
+            )
+        }
+    }
+
+    /// Inside a list or form the field is the row; elsewhere it needs a box.
+    @ViewBuilder
+    private func bordered(_ field: some View) -> some View {
+        if node.string("variant") == "plain" {
+            field.textFieldStyle(.plain)
+        } else {
+            field.textFieldStyle(.roundedBorder)
+        }
+    }
+}
+
+/// `ui.stepper { "Copies", value = 2, min = 1, max = 9, change = "copies" }`.
+struct StepperNode: View {
+    let node: Node
+    let identifier: String
+    let send: (LuauValue) -> Void
+
+    var body: some View {
+        let low = node.number("min") ?? -.infinity
+        let high = node.number("max") ?? .infinity
+        Stepper(value: Binding {
+            node.number("value") ?? 0
+        } set: { value in
+            event(node.props["change"], value: .number(value)).map(send)
+        }, in: low...max(low, high), step: node.number("step") ?? 1) {
+            Text(verbatim: node.string("label") ?? "")
+        }
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+/// `ui.picker { "Sort", value = state.sort, change = "sort", options = { "name", "date" } }`.
+/// Options are values, or `{ value = ..., label = ..., icon = ... }`.
+/// `variant` is `segmented`, `menu`, `inline`, `palette`, or on iOS `wheel`
+/// and `navigation`.
+struct PickerNode: View {
+    let node: Node
+    let identifier: String
+    let send: (LuauValue) -> Void
+
+    var body: some View {
+        let picker = Picker(selection: Binding {
+            node.props["value"] ?? .bool(false)
+        } set: { value in
+            event(node.props["change"], value: value).map(send)
+        }) {
+            ForEach(options, id: \.value) { option in
+                if let icon = option.icon {
+                    Label(option.label, systemImage: icon).tag(option.value)
+                } else {
+                    Text(verbatim: option.label).tag(option.value)
+                }
+            }
+        } label: {
+            Text(verbatim: node.string("label") ?? "")
+        }
+        .accessibilityIdentifier(identifier)
+
+        switch node.string("variant") {
+        case "segmented": picker.pickerStyle(.segmented)
+        case "menu": picker.pickerStyle(.menu)
+        case "inline": picker.pickerStyle(.inline)
+        case "palette": picker.pickerStyle(.palette)
+        #if os(iOS)
+        case "wheel": picker.pickerStyle(.wheel)
+        case "navigation": picker.pickerStyle(.navigationLink)
+        #endif
+        default: picker
+        }
+    }
+
+    private var options: [Option] {
+        (node.props["options"]?.array ?? []).map { option in
+            if case .table = option, let value = option["value"] {
+                return Option(value: value, label: option["label"]?.string ?? value.plain, icon: option["icon"]?.string)
+            }
+            return Option(value: option, label: option.plain, icon: nil)
+        }
+    }
+
+    private struct Option {
+        let value: LuauValue
+        let label: String
+        let icon: String?
+    }
+}
+
+extension LuauValue {
+    /// The value as a person reads it: a string without its quotes.
+    var plain: String {
+        string ?? summary
     }
 }
