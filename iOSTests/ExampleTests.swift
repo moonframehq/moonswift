@@ -71,8 +71,10 @@ final class ExampleTests: XCTestCase {
         XCTAssertTrue(app.buttons["Forget"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["Forget"].firstMatch.tap()
 
+        // A workspace opens its shell, a view the app draws natively.
         app.staticTexts["chart legend"].tap()
-        XCTAssertTrue(app.staticTexts["The workspace screen is next."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["~/forecast main ❯ swift test"].waitForExistence(timeout: 5))
+        shot("terminal")
     }
 
     func testPullRequestsLeadToSettings() {

@@ -230,8 +230,12 @@ measure on a device.
     lists, quotes, code, inline styles), the last prompt pinned in glass on
     top, a principal title that opens a session sheet, and a glass composer
     inset at the bottom; `docs/parity/chat-light.png`.
-12. ☐ Next: the chat screen with `ui.native`
-   markdown and composer, hitch ratio on a device.
+12. ✅ `ui.native` end to end: the example app registers a terminal in Swift
+    (`MoonSwift/Examples/DemoTerminal.swift`), and a workspace's screen
+    places it with a Luau title, toolbar and hidden tab bar.
+13. ☐ Next: the iPad layout (sidebar `ui.list { selection }` beside a
+    detail), the creation sheets, a native composer with pictures, the
+    hitch ratio on a device.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.
 

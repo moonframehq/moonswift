@@ -28,7 +28,15 @@ struct MoonSwiftApp: App {
         #endif
     }
 
-    @ViewBuilder private var root: some View {
+    private var root: some View {
+        #if MOON_LIVE
+        content.environment(\.nativeViews, DemoTerminal.views)
+        #else
+        content
+        #endif
+    }
+
+    @ViewBuilder private var content: some View {
         #if MOON_LIVE
         // Benchmark B1: the store's canvas, without live tools, or the same
         // list in SwiftUI. See plans/ios-parity.md.

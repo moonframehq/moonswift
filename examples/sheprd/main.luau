@@ -467,12 +467,15 @@ return mod {
 				return settings.page(state, route.page)
 			end
 			if route.workspace then
-				return ui.unavailable {
-					"Workspace",
-					icon = "square.stack.3d.up",
-					description = "The workspace screen is next.",
-					title = route.workspace,
+				-- The workspace's shell: a view the app draws natively.
+				return ui.native {
+					"terminal",
+					pane = "p3",
+					grow = true,
+					title = "zsh",
 					titleMode = "inline",
+					hidesTabBar = true,
+					toolbar = { ui.button { icon = "keyboard", place = "trailing", msg = "keys" } },
 				}
 			end
 			local conversation = byKey(app)[route.chat]
