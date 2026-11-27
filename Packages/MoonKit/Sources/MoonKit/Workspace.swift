@@ -208,7 +208,7 @@ public final class Workspace {
         for name in names {
             guard let module = modules[name] else { continue }
             for topic in topics.keys.sorted() where module.subscribes(to: topic) {
-                first.append(Queued(send: Send(to: name, message: Self.event(topic, topics[topic])), from: nil))
+                first.append(Queued(send: Send(to: name, message: Self.event(topic, topics[topic])), from: nil, host: true))
             }
         }
         for name in names {
@@ -264,7 +264,8 @@ public final class Workspace {
     }
 
     func send(_ message: LuauValue, to: String, from: String?) {
-        queue.append(Queued(send: Send(to: to, message: message), from: from))
+        // Only a provider, Swift the app links, may speak for providers.
+        queue.append(Queued(send: Send(to: to, message: message), from: from, host: from?.hasPrefix("provider:") == true))
         drain()
     }
 
@@ -305,7 +306,7 @@ public final class Workspace {
         // `provider/` is the providers' and `app/` the app's: no mod's to
         // publish, nor to forge as a topic event sent straight to a mod.
         let topic = send.to.hasPrefix("topic:") ? String(send.to.dropFirst("topic:".count)) : send.message["topic"]?.string
-        if queued.from != nil, let topic, Self.reserved(topic) {
+        if !queued.host, let topic, Self.reserved(topic) {
             let file = queued.from.map(file(of:)) ?? "messages"
             problems[file] = Problem(file: file, message: "topic \(topic) is not a mod's to publish")
             return []
@@ -371,7 +372,7 @@ public final class Workspace {
     func providerChanged(_ name: String) {
         let topic = "provider/\(name)"
         if let value = providers[name]?.value {
-            queue += subscribers(of: topic, value: value).map { Queued(send: Send(to: $0.0, message: $0.1), from: nil) }
+            queue += subscribers(of: topic, value: value).map { Queued(send: Send(to: $0.0, message: $0.1), from: nil, host: true) }
             drain()
         }
         for module in modules.values where reads[module.name]?.contains(name) == true {
@@ -424,4 +425,8 @@ struct ModSheet {
 struct Queued {
     let send: Send
     let from: String?
+    /// Made by the host itself, as a topic's replay or a provider's
+    /// publish, rather than by a mod or a control a mod drew: only these
+    /// may carry a `provider/` or `app/` topic.
+    var host = false
 }

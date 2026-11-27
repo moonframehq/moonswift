@@ -82,6 +82,12 @@ struct CompatTests {
 
         #expect(workspace.trees["victim"]?.text == "nothing")
         #expect(workspace.problem(of: "shell") != nil)
+
+        // Nor through a control's msg, which reaches the workspace unsigned.
+        workspace.send(.fields(["topic": .string("app/url"), "value": .string("x")]), to: "victim")
+        workspace.send(.string("y"), to: "topic:provider/git")
+        #expect(workspace.trees["victim"]?.text == "nothing")
+        #expect(workspace.topics["provider/git"] == nil)
     }
 
     @Test func useGivesAComponentsBuildAndAnythingElseAsItIs() throws {
