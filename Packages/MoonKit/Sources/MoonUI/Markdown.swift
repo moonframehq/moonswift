@@ -16,6 +16,18 @@ struct MarkdownNode: View {
             }
         }
         .textSelection(.enabled)
+        .modifier(SafeLinks())
+    }
+}
+
+/// Links in markdown open only as `ui.link`'s do: `https`, `http` and
+/// `mailto`, on a tap. Any other scheme, which could open another app with
+/// whatever a mod put in it, goes nowhere.
+struct SafeLinks: ViewModifier {
+    func body(content: Content) -> some View {
+        content.environment(\.openURL, OpenURLAction { url in
+            LinkNode.schemes.contains(url.scheme?.lowercased() ?? "") ? .systemAction : .discarded
+        })
     }
 }
 

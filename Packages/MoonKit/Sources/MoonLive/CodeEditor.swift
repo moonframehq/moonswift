@@ -41,7 +41,9 @@ struct CodeEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? NSTextView else { return }
-        let replaced = view.string != text
+        // While the person types, the binding can lag a keystroke behind the
+        // view: taking it then would drop what they typed and move the cursor.
+        let replaced = view.string != text && !context.coordinator.typing(in: view)
         if replaced { view.string = text }
         let moved = context.coordinator.line != line
         if replaced || moved {
@@ -91,8 +93,16 @@ struct CodeEditor: NSViewRepresentable {
             self.text = text
         }
 
+        private var typed = Date.distantPast
+
         func textDidChange(_ notification: Notification) {
+            typed = .now
             if let view = notification.object as? NSTextView { text.wrappedValue = view.string }
+        }
+
+        /// Whether the person is typing here right now.
+        func typing(in view: NSTextView) -> Bool {
+            view.window?.firstResponder === view && Date.now.timeIntervalSince(typed) < 1
         }
     }
 }
@@ -123,7 +133,9 @@ struct CodeEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        let replaced = view.text != text
+        // While the person types, the binding can lag a keystroke behind the
+        // view: taking it then would drop what they typed and move the cursor.
+        let replaced = view.text != text && !context.coordinator.typing(in: view)
         if replaced { view.text = text }
         let moved = context.coordinator.line != line
         if replaced || moved {
@@ -156,8 +168,16 @@ struct CodeEditor: UIViewRepresentable {
             self.text = text
         }
 
+        private var typed = Date.distantPast
+
         func textViewDidChange(_ view: UITextView) {
+            typed = .now
             text.wrappedValue = view.text
+        }
+
+        /// Whether the person is typing here right now.
+        func typing(in view: UITextView) -> Bool {
+            view.isFirstResponder && Date.now.timeIntervalSince(typed) < 1
         }
     }
 }

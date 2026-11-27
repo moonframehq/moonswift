@@ -116,6 +116,7 @@ struct TextNode: View {
             .multilineTextAlignment(alignment)
             .contentTransition(node.flag("numeric") ? .numericText() : .identity)
             .modifier(Selectable(on: node.flag("selectable")))
+            .modifier(SafeLinks())
             .accessibilityIdentifier(identifier)
     }
 

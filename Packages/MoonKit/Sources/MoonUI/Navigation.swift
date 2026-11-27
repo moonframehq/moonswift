@@ -58,7 +58,7 @@ struct LinkNode: View {
         if let route = node.props["route"] {
             NavigationLink(value: route) { label }
                 .accessibilityIdentifier(identifier)
-        } else if let url = node.string("url").flatMap(URL.init(string:)), Self.schemes.contains(url.scheme ?? "") {
+        } else if let url = node.string("url").flatMap(URL.init(string:)), Self.schemes.contains(url.scheme?.lowercased() ?? "") {
             // Only on a tap, and to the browser or mail: what it carries is
             // in plain sight.
             Link(destination: url) { label }

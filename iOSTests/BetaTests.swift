@@ -43,9 +43,30 @@ final class BetaTests: XCTestCase {
         let editor = app.textViews["moon.source"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.tap()
-        editor.typeKey("a", modifierFlags: .command)
+        let focused = expectation(for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: editor)
+        wait(for: [focused], timeout: 5)
+        // Empty it as a person would: the cursor at the end, then hold delete.
+        // With a hardware keyboard attached there are no keys: ⌘A then.
+        let delete = app.keys["delete"]
+        if delete.waitForExistence(timeout: 2) {
+            for _ in 0..<4 { editor.swipeUp() }
+            editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.97)).tap()
+            // Held, delete speeds up to whole words; a long file takes a while.
+            for _ in 0..<6 where !(editor.value as? String ?? "").isEmpty {
+                delete.press(forDuration: 10)
+            }
+        } else {
+            editor.typeKey("a", modifierFlags: .command)
+        }
         editor.typeText(#"return mod { view = function() return ui.text { "typed on a phone" } end }"#)
-        XCTAssertTrue(app.staticTexts["typed on a phone"].waitForExistence(timeout: 5), "typing should redraw the app")
+        let typed = app.staticTexts["typed on a phone"].waitForExistence(timeout: 5)
+        if !typed {
+            let holds = XCTAttachment(string: editor.value as? String ?? "")
+            holds.name = "editor"
+            holds.lifetime = .keepAlways
+            add(holds)
+        }
+        XCTAssertTrue(typed, "typing should redraw the app")
         shot("edited")
     }
 }
