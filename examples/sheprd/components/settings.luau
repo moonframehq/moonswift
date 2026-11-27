@@ -81,6 +81,13 @@ function settings.hub(state, app)
 end
 
 local titles = {
+	computers = "Computers",
+	fleet = "Fleet",
+	relays = "Relays",
+	github = "GitHub",
+	notifications = "Notifications",
+	voice = "Voice",
+	privacy = "Privacy & Storage",
 	chats = "Chats",
 	sounds = "Sounds & Haptics",
 	keys = "Terminal Keys",

@@ -25,6 +25,8 @@ type State = {
 	foldedMachines: { [string]: boolean },
 	holdAlerts: { [string]: boolean },
 	forgetting: string?,
+	prQuery: string,
+	prSort: string,
 }
 
 local order = { "blocked", "done", "working", "idle" }
@@ -163,10 +165,6 @@ local function home(state: State, app)
 	}
 end
 
-local function soon(title: string, icon: string)
-	return ui.stack { ui.unavailable { title, icon = icon, description = "Not rebuilt in Luau yet.", title = title } }
-end
-
 -- What a row says under its title.
 local function detail(chat): string
 	local text = chat.last ~= "" and chat.last or "No messages yet"
@@ -288,6 +286,8 @@ return mod {
 			foldedMachines = state.foldedMachines or {},
 			holdAlerts = state.holdAlerts or {},
 			forgetting = nil,
+			prQuery = state.prQuery or "",
+			prSort = state.prSort or "updated",
 			keys = state.keys or { "esc", "tab", "ctrl", "↑", "↓", "←", "→", "|", "~", "/" },
 		}
 	end,
@@ -304,6 +304,10 @@ return mod {
 			elseif msg == "foldMachines" then
 				local any = next(state.foldedMachines) ~= nil
 				state.foldedMachines = any and {} or { Studio = true, ["MacBook Air"] = true }
+			elseif msg == "openGitHub" then
+				-- Another tab, and the page in it: navigation is just state.
+				state.tab = "settings"
+				state.settingsPath = { { page = "github" } }
 			elseif msg == "keepMachine" then
 				state.forgetting = nil
 			elseif msg == "tryHaptic" then
@@ -395,7 +399,36 @@ return mod {
 				key = "workspaces",
 				ui.stack { path = state.workspacesPath, change = "workspacesPath", screen = "screen", workspaces.view(state, app) },
 			},
-			ui.tab { "PRs", icon = "arrow.triangle.pull", key = "prs", soon("Pull Requests", "arrow.triangle.pull") },
+			ui.tab {
+				"PRs",
+				icon = "arrow.triangle.pull",
+				key = "prs",
+				ui.stack {
+					ui.unavailable {
+						"No GitHub account",
+						icon = "arrow.triangle.pull",
+						description = "Sign in to GitHub on this iPhone, or let a paired computer lend its sign-in.",
+						titleMode = "inline",
+						search = { value = state.prQuery, change = "prQuery", prompt = "Title, repository, author, branch", placement = "always" },
+						toolbar = {
+							ui.menu {
+								icon = "arrow.up.arrow.down",
+								place = "leading",
+								ui.picker {
+									"Sort Pull Requests",
+									value = state.prSort,
+									change = "prSort",
+									options = {
+										{ value = "updated", label = "Recently Updated", icon = "clock" },
+										{ value = "status", label = "Status", icon = "exclamationmark.circle" },
+									},
+								},
+							},
+						},
+						ui.button { "Open Settings › GitHub", variant = "primary", size = "small", msg = "openGitHub" },
+					},
+				},
+			},
 			ui.tab {
 				"Settings",
 				icon = "gearshape",

@@ -220,7 +220,11 @@ measure on a device.
    actions menu with a toggle and a confirm, repository sections with letter
    avatars, workspace rows with status marks, uncommitted and PR pills;
    `docs/parity/workspaces-light.png`.
-10. ☐ Next: the PRs tab, the chat screen with `ui.native`
+10. ✅ PRs, as the demo shows it (no GitHub account): the empty state, sort
+    menu and search; its button switches tab and pushes Settings › GitHub,
+    as navigation is only state. `docs/parity/prs-light.png`. All four tabs
+    now match the original.
+11. ☐ Next: the chat screen with `ui.native`
    markdown and composer, hitch ratio on a device.
 
 Live editing stays in MoonLive only, and `just store-audit` keeps passing.

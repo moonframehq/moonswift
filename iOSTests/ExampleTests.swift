@@ -70,6 +70,14 @@ final class ExampleTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["The workspace screen is next."].waitForExistence(timeout: 5))
     }
 
+    func testPullRequestsLeadToSettings() {
+        app.tabBars.buttons["PRs"].tap()
+        XCTAssertTrue(app.staticTexts["No GitHub account"].waitForExistence(timeout: 5))
+        shot("prs")
+        app.buttons["Open Settings › GitHub"].tap()
+        XCTAssertTrue(app.navigationBars["GitHub"].waitForExistence(timeout: 5))
+    }
+
     func testSettingsPagesAndAppearance() {
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.staticTexts["Computers"].waitForExistence(timeout: 5))
