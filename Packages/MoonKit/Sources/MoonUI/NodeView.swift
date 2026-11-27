@@ -172,16 +172,22 @@ struct NodeView: View, Equatable {
     private func styled(_ style: StyleRule) -> some View {
         let sheet = workspace.stylesheet(for: scope.mod)
         return content(style)
-            .modifier(Box(style: style, node: node, sheet: sheet, dark: dark, fills: fills))
+            .modifier(Box(style: style, node: node, sheet: sheet, dark: dark, fills: fills, scope: scope))
             .modifier(Tap(node: node, send: send))
             .modifier(Hover(on: sheet.hovers(Stylesheet.selectors(of: node)), hovered: $hovered))
             .modifier(Decorations(node: node, scope: scope, send: send))
             .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
     }
 
+    /// Whether it takes its parent's width: it grows that way, it is a
+    /// panel, or a Moonframe column stretches it (its containers; a text or
+    /// button keeps its own width) and it doesn't `hug`.
     private var fills: Bool {
         node.growsWide || node.kind == .panel
+            || (node.across && Self.stretchable.contains(node.kind) && !node.flag("hug") && node.props["self_align"] == nil)
     }
+
+    private static let stretchable: Set<Node.Kind> = [.row, .column, .panel, .pane, .item, .input, .markdown, .list]
 
     /// Every element is findable by `id`, or by where it sits.
     var identifier: String {
@@ -224,11 +230,12 @@ struct Children: View {
             .onMove(perform: RowEditing(node: node, keys: keys, send: send).move)
             .onDelete(perform: RowEditing(node: node, keys: keys, send: send).delete)
         } else {
-            // Moonframe's `justify`, as spacers the stack shares out.
+            // Moonframe's `between`, as spacers the stack shares out; `center`
+            // and `end` place the stack in its box instead (`Box`).
             let justify = node.kind == .row || node.kind == .column ? node.string("justify") : nil
             let children = Identified.of(node.children)
-            if justify == "center" || justify == "end" { Spacer(minLength: 0) }
-            ForEach(children) { child in
+            // A floated child is drawn over the stack instead (`Floats`).
+            ForEach(children.filter { $0.node.props["float"] == nil }) { child in
                 if justify == "between", child.id != children.first?.id { Spacer(minLength: 0) }
                 // A stack sees a spacer only bare, not inside another view.
                 if child.node.kind == .spacer {
@@ -237,7 +244,6 @@ struct Children: View {
                     NodeView(node: child.node, scope: scope.child(child.id)).equatable()
                 }
             }
-            if justify == "center" { Spacer(minLength: 0) }
         }
         if let rows = node.lazyRows {
             LazyRows(count: rows.count, function: rows.function, scope: scope, owner: node)
@@ -337,6 +343,7 @@ private struct Box: ViewModifier {
     let sheet: Stylesheet
     let dark: Bool
     let fills: Bool
+    let scope: Scope
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: style.radius ?? 0, style: .continuous)
@@ -348,9 +355,11 @@ private struct Box: ViewModifier {
                 alignment: frameAlignment
             )
             .frame(
-                maxWidth: fills ? .infinity : nil,
-                maxHeight: node.growsTall ? .infinity : nil,
-                alignment: frameAlignment
+                maxWidth: fills || selfAlign != nil ? node.number("max_width").map { CGFloat($0) } ?? .infinity
+                    : node.number("max_width").map { CGFloat($0) },
+                maxHeight: node.growsTall ? node.number("max_height").map { CGFloat($0) } ?? .infinity
+                    : node.number("max_height").map { CGFloat($0) },
+                alignment: selfAlign ?? frameAlignment
             )
             .modifier(Ink(color: sheet.paint(style.color, dark: dark)))
             .background {
@@ -368,13 +377,34 @@ private struct Box: ViewModifier {
                     default: shape.strokeBorder(border, lineWidth: width)
                     }
                 }
+                // Children with `float`, over the box rather than in it.
+                if node.hasFloats {
+                    Floats(node: node, scope: scope)
+                }
             }
             .modifier(Glass(on: style.glass ?? false, shape: shape))
             .modifier(Shadow(radius: style.shadow))
             .opacity(style.opacity ?? 1)
             .modifier(Turn(degrees: node.number("rotate")))
-            .modifier(Fixed(axis: node.props["fixed"]))
+            .modifier(Fixed(axis: node.props["fixed"] ?? shrinkless))
             .padding(EdgeInsets(style.margin))
+    }
+
+    /// Moonframe's `self_align` in a column: where it sits across the
+    /// width, in a box as wide as the column.
+    private var selfAlign: Alignment? {
+        guard node.axis == .vertical, let align = node.string("self_align"), align != "stretch" else { return nil }
+        return align == "end" ? .trailing : align == "center" ? .center : .leading
+    }
+
+    /// Moonframe's `shrink = false`: its own size along its parent's axis.
+    private var shrinkless: LuauValue? {
+        guard node.props["shrink"] == .bool(false) else { return nil }
+        return switch node.axis {
+        case .horizontal: .string("x")
+        case .vertical: .string("y")
+        case nil: .bool(true)
+        }
     }
 
     /// Where a one-edge border goes.
@@ -391,10 +421,13 @@ private struct Box: ViewModifier {
     /// Where the content sits in a box bigger than it: by the column's or
     /// row's `align`, from the top leading corner otherwise.
     private var frameAlignment: Alignment {
+        let justify = node.string("justify")
         switch node.kind {
-        case .column: Alignment(horizontal: node.horizontalAlignment, vertical: .top)
-        case .row: Alignment(horizontal: .leading, vertical: node.verticalAlignment)
-        default: .topLeading
+        case .column:
+            return Alignment(horizontal: node.horizontalAlignment, vertical: justify == "end" ? .bottom : justify == "center" ? .center : .top)
+        case .row:
+            return Alignment(horizontal: justify == "end" ? .trailing : justify == "center" ? .center : .leading, vertical: node.verticalAlignment)
+        default: return .topLeading
         }
     }
 }

@@ -43,6 +43,10 @@ public final class Workspace {
     public private(set) var reloads = 0
     public private(set) var lastReload: Duration = .zero
     public private(set) var logs: [String] = []
+    /// What each mod draws as a placeholder, by file: a component that is
+    /// missing, an element MoonSwift has no view for yet. Each is logged once
+    /// as it first appears; `moon check` lists them.
+    public private(set) var warnings: [String: [String]] = [:]
 
     public let folders: Folders
     public var context = AppContext() {
@@ -123,6 +127,9 @@ public final class Workspace {
             sync(module)
             node = try module.call(function, with: key)
             reads[mod, default: []].formUnion(try module.read())
+            // SwiftUI asks for rows while it draws: note them after.
+            let gaps = node.gaps
+            if !gaps.isEmpty { Task { @MainActor in self.warn(gaps, in: mod) } }
         } catch {
             node = .invalid(error.message)
         }
@@ -151,7 +158,8 @@ public final class Workspace {
             guard stale else { continue }
             attempted[file] = source
             changed = true
-            if load(name: name, file: file, source: source, components: components) { loaded.append(name) }
+            let needed = Self.closure(of: source, in: components)
+            if load(name: name, file: file, source: source, components: needed) { loaded.append(name) }
         }
         // Files tried before that are gone, including ones that never loaded.
         for file in attempted.keys where file != Self.styleFile && folders.read(file) == nil {
@@ -161,10 +169,20 @@ public final class Workspace {
             drawings[name]?.tree = nil
             parts[name] = nil
             problems[file] = nil
+            warnings[file] = nil
             attempted[file] = nil
             changed = true
         }
-        changed = reloadStyle(components: components, force: componentsChanged) || changed
+        // Every component a mod uses brings its `styles`, under the mods'
+        // and the stylesheet's, as in Moonframe.
+        let used = names.compactMap { folders.read(file(of: $0)) }.flatMap { Self.closure(of: $0, in: components) }
+        let usedNames = Set(used.map(\.name))
+        let stylesChanged = usedNames != lastUsed || componentsChanged
+        if stylesChanged {
+            lastUsed = usedNames
+            componentStyles = componentRules(Array(Dictionary(used.map { ($0.name, $0) }) { first, _ in first }.values))
+        }
+        changed = reloadStyle(components: components, force: stylesChanged) || changed
         started(loaded)
         if changed {
             reloads += 1
@@ -173,12 +191,55 @@ public final class Workspace {
     }
 
     @ObservationIgnored private var lastComponents: [Component] = []
+    @ObservationIgnored private var lastUsed: Set<String> = []
+    @ObservationIgnored private var componentStyles: [String: LuauValue] = [:]
+
+    /// Each component's `styles`, merged in name order.
+    private func componentRules(_ components: [Component]) -> [String: LuauValue] {
+        var rules: [String: LuauValue] = [:]
+        for (_, styles) in Module.styles(of: components, limits: limits, log: logger(for: "components")) {
+            guard case .table(_, let fields) = styles else { continue }
+            rules.merge(fields) { kept, _ in kept }
+        }
+        return rules
+    }
+
+    /// The components `source` uses, and those they use: only these are
+    /// compiled into its VM, of the hundreds the library has. Found by
+    /// `use "name"` in the text, so a name only known at run time (a tab
+    /// bar's kinds) draws as missing, with a warning.
+    static func closure(of source: String, in components: [Component]) -> [Component] {
+        let byName = Dictionary(components.map { ($0.name, $0) }, uniquingKeysWith: { _, last in last })
+        var needed: [String: Component] = [:]
+        var pending = uses(in: source)
+        while let name = pending.popLast() {
+            guard needed[name] == nil, let component = byName[name] else { continue }
+            needed[name] = component
+            pending += uses(in: component.source)
+        }
+        return needed.values.sorted { $0.name < $1.name }
+    }
+
+    private static func uses(in source: String) -> [String] {
+        source.matches(of: /\buse\s*\(?\s*["']([A-Za-z0-9_-]+)["']/).map { String($0.output.1) }
+    }
 
     private func component(_ entry: String) -> Component? {
         guard entry.hasSuffix(".luau") else { return nil }
         let file = "components/\(entry)"
-        return folders.read(file).map { Component(name: String(entry.dropLast(5)), file: file, source: $0) }
+        guard let url = folders.locate(file) else { return nil }
+        // The library is in the app's bundle and never changes: read it once.
+        if let library = folders.library, url.path.hasPrefix(library.path) {
+            if let kept = Self.library[url] { return kept }
+            let read = (try? String(contentsOf: url, encoding: .utf8))
+                .map { Component(name: String(entry.dropLast(5)), file: file, source: $0) }
+            Self.library[url] = read
+            return read
+        }
+        return (try? String(contentsOf: url, encoding: .utf8)).map { Component(name: String(entry.dropLast(5)), file: file, source: $0) }
     }
+
+    private static var library: [URL: Component] = [:]
 
     /// True if it loaded, and replaced what ran before.
     private func load(name: String, file: String, source: String, components: [Component]) -> Bool {
@@ -232,15 +293,16 @@ public final class Workspace {
         guard attempted[file] != source || force else { return false }
         attempted[file] = source
         guard !source.isEmpty else {
-            stylesheet = Stylesheet()
+            stylesheet = Stylesheet(nil, components: componentStyles)
             problems[file] = nil
             return true
         }
         do throws(LuauError) {
             let sheet = try Module.evaluate(
-                file: file, source: source, components: components, limits: limits, log: logger(for: "style")
+                file: file, source: source, components: Self.closure(of: source, in: components), limits: limits,
+                log: logger(for: "style")
             )
-            stylesheet = Stylesheet(sheet)
+            stylesheet = Stylesheet(sheet, components: componentStyles)
             problems[file] = nil
         } catch {
             problems[file] = Problem(file: file, message: error.message)
@@ -351,8 +413,22 @@ public final class Workspace {
     private func show(_ tree: Node, of name: String) {
         let drawing = drawing(of: name)
         drawing.generation += 1
-        if drawing.tree != tree { drawing.tree = tree }
+        if drawing.tree != tree {
+            drawing.tree = tree
+            warn(tree.gaps, in: name)
+        }
         revision += 1
+    }
+
+    /// Notes and logs what a mod draws as a placeholder, each once.
+    private func warn(_ gaps: [String], in name: String) {
+        let file = file(of: name)
+        let known = warnings[file] ?? []
+        let new = gaps.filter { !known.contains($0) }
+        guard !new.isEmpty else { return }
+        warnings[file] = known + new
+        let log = logger(for: name)
+        for gap in new { log("warning: \(gap)") }
     }
 
     private func renderAll() {

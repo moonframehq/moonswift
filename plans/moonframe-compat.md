@@ -245,6 +245,47 @@ changes: a phone-first mod can ship a small `adaptive` component that returns
 `ui.tabs` under `swiftui` and the sidebar otherwise, and only that component
 knows both.
 
+### Moonframe's components
+
+MoonKit ships Moonframe's component library (`app/components`, 190 or so)
+in `Packages/MoonKit/Sources/MoonKit/Library/components`, under every app's
+own components, so `use "stat-tile"` in a desktop mod finds the same file
+on a phone. `just components-sync` copies them from a Moonframe checkout.
+
+- Only the components a mod uses, found by `use "name"` in its text and
+  theirs, are compiled into its VM, so the library costs nothing per mod.
+- Each used component's `styles` apply app-wide, under the mods' and the
+  stylesheet's rules, as in Moonframe.
+- `GalleryTests` draws every component's `example` and fails on any error;
+  each one draws today. It prints what draws as a placeholder, the list of
+  what to add next.
+
+### When something is missing
+
+A desktop mod never fails on a phone because a piece is missing. Instead it
+draws a placeholder, the mod notes a warning (`workspace.warnings`), the
+log says it once, and `moon check` lists it without failing:
+
+- `use` of a component that isn't there, or whose name is only known at run
+  time (a tab bar's kinds from `app.kinds`).
+- A component that keeps state of its own (Moonframe's instances: `tabbed`,
+  `command-palette`, `dictation`, `markdown-editor`, ...).
+- `ui.map`, `ui.video`, `ui.paths` and `ui.revision_timeline`.
+
+Each warning is a task: add the element or the feature, and the warning
+goes away. Next on that list: instances, then `ui.paths`.
+
+### Layout keys
+
+Moonframe's layout keys that SwiftUI's stacks have no word for are drawn
+here too: `shrink = false`, `hug`, `self_align`, `max_width`, `wrap` (a flow
+layout), `float` (children placed over the box), and a column stretching
+its containers across its width unless `align` says otherwise. Text sizes
+map to the Dynamic Type style nearest Moonframe's 14 px scale, so a desktop
+component's fixed widths still hold its text. A scrolled column stays as
+wide as the screen: a row made for a desktop (`pr-row`) runs off its right
+edge rather than moving the page.
+
 ## 5. What each host keeps to itself
 
 - `app:` requests: Moonframe's `app:command`, `app:window`, `app:notify`
@@ -255,6 +296,7 @@ knows both.
   MoonSwift yet: they load, and do nothing.
 - MoonSwift's screen props and `app.phase` (`active`, `inactive`,
   `background`) are its own.
+- Providers written for Moonframe in Rust: plans/wasm-providers-ios.md.
 - Not on MoonSwift yet: `ui.t`, `ui.number`, `ui.date` and `ui.locale`,
   `:focus` rules, transitions, `float`, and the `secondary` theme color, which
   here still means the system's secondary text color rather than a surface.

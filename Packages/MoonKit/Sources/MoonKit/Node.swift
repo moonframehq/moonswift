@@ -55,6 +55,9 @@ nonisolated public struct Node: Equatable, Sendable {
         // Moonframe's, which draw here as a placeholder naming them.
         case browser, map, video, line, paths, hatch
         case revisionTimeline = "revision_timeline"
+        // What `use` gives for a component that isn't here, or that keeps
+        // state of its own: placeholders the workspace warns about.
+        case missing, instance
         case invalid
     }
 
@@ -77,6 +80,9 @@ nonisolated public struct Node: Equatable, Sendable {
     /// axis, as a Moonframe stack does unless its `align` says otherwise:
     /// `grow = true` then fills that way too.
     public let stretched: Bool
+    /// Whether its parent is a column that stretches what it holds across
+    /// its width, as Moonframe's do unless `align` says otherwise.
+    public let across: Bool
 
     public enum Axis: Sendable { case horizontal, vertical }
 
@@ -85,10 +91,10 @@ nonisolated public struct Node: Equatable, Sendable {
     }
 
     public init(_ value: LuauValue) {
-        self.init(value, axis: nil, stretched: false)
+        self.init(value, axis: nil, stretched: false, across: false)
     }
 
-    private init(_ value: LuauValue, axis: Axis?, stretched: Bool) {
+    private init(_ value: LuauValue, axis: Axis?, stretched: Bool, across: Bool) {
         guard case .table(let array, var fields) = value else {
             self = .invalid("expected an element, got \(value.summary)")
             return
@@ -99,6 +105,7 @@ nonisolated public struct Node: Equatable, Sendable {
         }
         self.axis = axis
         self.stretched = stretched
+        self.across = across
         line = fields.removeValue(forKey: "__line")?.integer
         guard let kind = Kind(rawValue: name), kind != .invalid else {
             self.kind = .invalid
@@ -116,15 +123,20 @@ nonisolated public struct Node: Equatable, Sendable {
         case .column, .panel, .pane, .scroll, .list, .section, .form: .vertical
         default: nil
         }
-        let stretches = fields["grow"] == .bool(true) && (fields["align"] == nil || fields["align"] == .string("stretch"))
-        children = array.filter { $0 != .bool(false) }.map { Node($0, axis: along, stretched: stretches) }
+        let aligned = fields["align"] == nil || fields["align"] == .string("stretch")
+        let stretches = fields["grow"] == .bool(true) && aligned
+        let fillsAcross = along == .vertical && aligned && kind != .list && kind != .section && kind != .form
+        children = array.filter { $0 != .bool(false) }.map {
+            Node($0, axis: along, stretched: stretches, across: fillsAcross)
+        }
         problem = nil
-        digest = Self.digest(kind: kind, props: fields, children: children, extra: "\(line ?? 0) \(String(describing: axis)) \(stretched)")
+        digest = Self.digest(kind: kind, props: fields, children: children, extra: "\(line ?? 0) \(String(describing: axis)) \(stretched) \(across)")
     }
 
     private init(invalid problem: String) {
         axis = nil
         stretched = false
+        across = false
         kind = .invalid
         props = [:]
         children = []
@@ -159,6 +171,8 @@ nonisolated public struct Node: Equatable, Sendable {
         case .button, .item, .toggle, .menu, .picker, .stepper, .disclosure: string("label")
         case .icon, .native, .view: string("name")
         case .terminal: string("id")
+        case .missing: string("name")
+        case .instance: string("component")
         case .browser: string("url")
         case .image: string("src")
         case .input, .secure, .editor: string("placeholder")
@@ -190,6 +204,26 @@ nonisolated public struct Node: Equatable, Sendable {
             current = found.element
         }
         return current
+    }
+
+    /// What in this tree draws as a placeholder here: a Moonframe element
+    /// MoonSwift has no view for yet, a missing component, an instance.
+    public var gaps: [String] {
+        var found: [String] = []
+        func walk(_ node: Node) {
+            switch node.kind {
+            case .missing: found.append("no component named \(node.text ?? "")")
+            case .instance: found.append("component \(node.text ?? "") keeps state of its own, which MoonSwift can't run yet")
+            case .map, .video, .paths, .revisionTimeline: found.append("ui.\(node.kind.rawValue) draws as a placeholder here")
+            default: break
+            }
+            node.children.forEach(walk)
+            for case .table(_, let fields) in node.props.values where fields["type"] != nil {
+                walk(Node(.table(array: [], fields: fields)))
+            }
+        }
+        walk(self)
+        return Array(Set(found)).sorted()
     }
 
     /// Every `.invalid` element in this tree.

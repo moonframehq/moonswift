@@ -7,10 +7,14 @@ extension NodeView {
     func content(_ style: StyleRule) -> some View {
         switch node.kind {
         case .row:
-            HStack(alignment: node.verticalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+            if node.flag("wrap") {
+                FlowLayout(spacing: style.gap ?? 8) { Children(node: node, scope: scope) }
+            } else {
+                HStack(alignment: node.verticalAlignment, spacing: style.gap ?? 8) { Children(node: node, scope: scope) }
+            }
         case .column:
             scrolling {
-                VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+                VStack(alignment: node.horizontalAlignment, spacing: style.gap ?? 8) { Children(node: node, scope: scope) }
             }
         case .panel:
             scrolling {
@@ -44,7 +48,16 @@ extension NodeView {
         case .label:
             LabelNode(node: node, scope: scope).font(font(style))
         case .badge:
-            Text(verbatim: node.string("text") ?? "").font(font(style))
+            // A pill, as Moonframe's theme draws one, unless a rule says how.
+            if style.background == nil {
+                Text(verbatim: node.string("text") ?? "")
+                    .font(font(style) ?? .caption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.tint.opacity(0.15)))
+            } else {
+                Text(verbatim: node.string("text") ?? "").font(font(style))
+            }
         case .icon:
             IconNode(node: node).font(font(style))
         case .image:
@@ -77,7 +90,11 @@ extension NodeView {
             OverlayNode(node: node, scope: scope, send: send)
         case .browser:
             BrowserNode(node: node)
-        case .map, .video, .line, .paths, .hatch, .revisionTimeline:
+        case .line:
+            LineNode(node: node)
+        case .hatch:
+            HatchNode(node: node)
+        case .map, .video, .paths, .revisionTimeline, .missing, .instance:
             PlaceholderNode(node: node)
         case .invalid:
             WarningMark(text: node.problem ?? "bad element")
@@ -105,7 +122,7 @@ extension NodeView {
     @ViewBuilder
     private func scrolling(@ViewBuilder _ stack: () -> some View) -> some View {
         if node.flag("scroll") {
-            ScrollView { stack().frame(maxWidth: .infinity, alignment: .leading) }
+            ScrollView { Clamped { stack() } }
         } else {
             stack()
         }

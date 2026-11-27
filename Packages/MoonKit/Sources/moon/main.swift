@@ -23,6 +23,11 @@ for (name, tree) in workspace.trees.sorted(by: { $0.key < $1.key }) {
         failed = true
     }
 }
+// Placeholders don't fail the check: the mod still works, and each is
+// something to add to MoonSwift.
+for (file, gaps) in workspace.warnings.sorted(by: { $0.key < $1.key }) {
+    for gap in gaps { print("\(file): warning: \(gap)") }
+}
 if workspace.trees[Workspace.shell] == nil {
     print("no main.luau in \(folder)")
     failed = true

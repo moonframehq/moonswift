@@ -61,6 +61,8 @@ public struct StyleRule: Equatable, Sendable {
     public var shadow: Double?
     public var padding: Edges?
     public var margin: Edges?
+    /// Space between a stack's children: a token or points.
+    public var gap: Double?
     /// Liquid Glass behind the element.
     public var glass: Bool?
 
@@ -106,6 +108,7 @@ public struct StyleRule: Equatable, Sendable {
         }
         padding = Edges(fields["padding"])
         margin = Edges(fields["margin"])
+        gap = fields["gap"].flatMap(Edges.points)
         glass = fields["glass"]?.bool
     }
 
@@ -126,15 +129,18 @@ public struct StyleRule: Equatable, Sendable {
         surface == "secondary" ? "card" : surface
     }
 
-    /// Moonframe's text sizes as Dynamic Type styles.
+    /// Moonframe's text sizes (0.85, 1, 1.15, 1.5, 1.75, 2.25 and 3 times
+    /// a 14 px base) as the Dynamic Type styles nearest them, so a desktop
+    /// component's fixed widths still hold its text.
     static func textStyle(_ token: String) -> String? {
         switch token {
-        case "small": "footnote"
-        case "normal": "body"
-        case "large": "title3"
-        case "title": "title2"
-        case "headline": "title"
-        case "display", "hero": "largeTitle"
+        case "small": "caption"
+        case "normal": "subheadline"
+        case "large": "body"
+        case "title": "title3"
+        case "headline": "title2"
+        case "display": "title"
+        case "hero": "largeTitle"
         default: nil
         }
     }
@@ -157,6 +163,7 @@ public struct StyleRule: Equatable, Sendable {
         shadow = other.shadow ?? shadow
         padding = other.padding ?? padding
         margin = other.margin ?? margin
+        gap = other.gap ?? gap
         glass = other.glass ?? glass
     }
 }
@@ -167,11 +174,19 @@ public struct StyleRule: Equatable, Sendable {
 public struct Stylesheet: Equatable, Sendable {
     private var light: [String: String] = [:]
     private var dark: [String: String] = [:]
+    /// What `resolve` reads: the components' rules with the app's over them.
     private var rules: [String: StyleRule] = [:]
+    /// The components' rules and the app's own, kept apart so a mod's
+    /// `styles` can go between them.
+    private var components: [String: StyleRule] = [:]
+    private var own: [String: StyleRule] = [:]
 
     public init() {}
 
-    init(_ value: LuauValue?) {
+    /// `value` is `style.luau`'s table; `components` the rules the
+    /// components a mod uses bring, under it.
+    init(_ value: LuauValue?, components: [String: LuauValue] = [:]) {
+        self.components = components.mapValues { StyleRule($0) }
         if case .table(_, let colors)? = value?["colors"] {
             for (name, color) in colors {
                 light[name] = color.string ?? color["light"]?.string
@@ -179,8 +194,10 @@ public struct Stylesheet: Equatable, Sendable {
             }
         }
         if case .table(_, let rules)? = value?["rules"] {
-            self.rules = rules.mapValues { StyleRule($0) }
+            own = rules.mapValues { StyleRule($0) }
         }
+        rules = self.components
+        for (selector, rule) in own { rules[selector, default: StyleRule()].merge(rule) }
     }
 
     /// This sheet with a mod's own `styles` under it: for each selector, the
@@ -190,8 +207,9 @@ public struct Stylesheet: Equatable, Sendable {
         guard case .table(_, let own)? = styles, !own.isEmpty else { return self }
         var sheet = self
         for (selector, value) in own {
-            var rule = StyleRule(value)
-            if let app = rules[selector] { rule.merge(app) }
+            var rule = components[selector] ?? StyleRule()
+            rule.merge(StyleRule(value))
+            if let app = self.own[selector] { rule.merge(app) }
             sheet.rules[selector] = rule
         }
         return sheet

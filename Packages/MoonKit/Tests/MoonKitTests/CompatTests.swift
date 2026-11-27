@@ -134,7 +134,7 @@ struct CompatTests {
         ]))
         let style = Stylesheet().resolve(node)
         #expect(style.color == "muted-foreground")
-        #expect(style.font == "footnote")
+        #expect(style.font == "caption")
         #expect(style.padding?.leading == 8)
     }
 
@@ -158,6 +158,37 @@ struct CompatTests {
 
         let big = Node(.fields(["type": .string("list"), "count": .number(1e12), "row": .fields(["__function": .number(1)])]))
         #expect(big.lazyRows?.count == Node.maxRows)
+    }
+
+    @Test func aMissingComponentIsAWarningNotAFailure() throws {
+        let app = try Sandbox(["main.luau": """
+        local nope, tabbed = use "no-such-thing", use "tabbed"
+        return mod { view = function() return ui.column { nope { x = 1 }, tabbed { id = "main" }, ui.text "still here" } end }
+        """])
+        let workspace = app.workspace()
+        workspace.reload()
+
+        #expect(workspace.problems.isEmpty)
+        let tree = try #require(workspace.trees["shell"])
+        #expect(tree.children.map(\.kind) == [.missing, .instance, .text])
+        let warnings = workspace.warnings["main.luau"] ?? []
+        #expect(warnings.contains("no component named no-such-thing"))
+        #expect(warnings.contains { $0.contains("tabbed keeps state of its own") })
+        #expect(workspace.logs.contains { $0.contains("warning: no component named no-such-thing") })
+    }
+
+    @Test func aLibraryComponentDrawsWithItsOwnStyles() throws {
+        let app = try Sandbox(["main.luau": """
+        local meter = use "meter"
+        return mod { view = function() return meter { value = 0.5, label = "Memory" } end }
+        """])
+        let workspace = app.workspace()
+        workspace.reload()
+
+        let tree = try #require(workspace.trees["shell"])
+        let label = try #require(tree.children.first)
+        #expect(label.string("class") == "meter-label")
+        #expect(workspace.stylesheet.resolve(label).color == "muted-foreground", "meter's styles, from the library")
     }
 
     @Test func theAppKnowsItIsSwiftUI() throws {
