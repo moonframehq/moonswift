@@ -10,8 +10,26 @@ struct ListNode: View {
     let scope: Scope
     let send: (LuauValue) -> Void
 
+    @State private var headerJump = HeaderJump()
+
     var body: some View {
-        styled(list)
+        if node.flag("edge") {
+            // `edge = true`: an index down the trailing edge (EdgeIndex.swift).
+            let parts = EdgePart.parts(of: node, scope: scope)
+            ScrollViewReader { proxy in
+                styled(list)
+                    .environment(\.edgeJump, headerJump)
+                    .overlay(alignment: .trailing) {
+                        if !parts.isEmpty {
+                            EdgeIndexStrip(parts: parts) { target in headerJump.go(to: target, proxy: proxy) }
+                                .padding(.vertical, 24)
+                                .padding(.trailing, 2)
+                        }
+                    }
+            }
+        } else {
+            styled(list)
+        }
     }
 
     @ViewBuilder
@@ -84,6 +102,7 @@ struct SectionNode: View {
     let scope: Scope
 
     @Environment(Workspace.self) private var workspace
+    @Environment(\.edgeJump) private var jump
 
     var body: some View {
         if let change = node.props["change"] {
@@ -113,6 +132,19 @@ struct SectionNode: View {
 
     @ViewBuilder
     private var header: some View {
+        if let jump {
+            title
+                .id(EdgePart.anchor(scope))
+                #if os(iOS)
+                .background(HeaderMark(jump: jump, key: EdgePart.anchor(scope)))
+                #endif
+        } else {
+            title
+        }
+    }
+
+    @ViewBuilder
+    private var title: some View {
         if let header = node.elements("header").first {
             NodeView(node: header, scope: scope.child("header")).equatable()
         } else if let title = node.string("title") {

@@ -22,6 +22,21 @@ final class ExampleTests: XCTestCase {
         add(attachment)
     }
 
+    func testTheEdgeIndexScrollsToASection() {
+        let first = app.staticTexts["Weather widget"].firstMatch
+        let top = first.frame.minY
+        // The strip is hidden from VoiceOver, as the system's index is:
+        // touch its letters where they are drawn, Idle's last, then
+        // Favorites' first. The demo is short, so the list moves a little.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.972, dy: 0.587)).tap()
+        let down = NSPredicate { _, _ in first.frame.minY < top - 20 }
+        wait(for: [expectation(for: down, evaluatedWith: nil)], timeout: 5)
+        shot("edge-index-idle")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.972, dy: 0.509)).tap()
+        let back = NSPredicate { _, _ in first.frame.minY > top - 20 }
+        wait(for: [expectation(for: back, evaluatedWith: nil)], timeout: 5)
+    }
+
     func testHomeFoldsSwipesAndOpensAChat() {
         shot("home")
         // A section folds from its header.

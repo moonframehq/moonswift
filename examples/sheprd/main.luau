@@ -154,11 +154,23 @@ local function home(state: State, app, screen)
 			ui.button { "Close Chat", role = "destructive", msg = { close = state.closing } },
 		} or nil,
 	}
+	-- The index down the trailing edge: a letter per section, a dot per
+	-- chat in its status's color.
+	list.edge = true
+	local chatsByKey = byKey(app)
 	for _, section in sections(state, chats) do
 		local folded = state.folded[section.id]
+		local dots = {}
+		if not folded then
+			for i, key in section.keys do
+				local status = parts.status[(chatsByKey[key] or {}).status or "idle"] or parts.status.idle
+				dots[i] = status.color
+			end
+		end
 		table.insert(list, ui.section {
 			key = section.id,
 			header = header(state, section),
+			edge = { letter = string.upper(string.sub(section.title, 1, 1)), dots = dots },
 			count = if folded then 0 else #section.keys,
 			row = function(i)
 				return chatAt(state, byKey(app)[section.keys[i]])

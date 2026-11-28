@@ -338,6 +338,7 @@ struct LazyRows: View {
     var owner: Node?
 
     @Environment(Workspace.self) private var workspace
+    @Environment(\.edgeJump) private var jump
 
     /// The rows' keys, their positions, made only for a list that edits.
     private var editing: RowEditing? {
@@ -347,12 +348,33 @@ struct LazyRows: View {
 
     var body: some View {
         let editing = editing
-        ForEach(1..<(count + 1), id: \.self) { index in
-            PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
-                .tag(LuauValue.number(Double(index)))
+        // In a list with an edge index each row is identified by the id
+        // the index scrolls to: the `ForEach`'s own, as an `.id` on each
+        // row, or a branch in each, makes a list draw every row to see what
+        // it is. The branch is here, once.
+        if jump != nil {
+            ForEach((1..<(count + 1)).map { EdgeRow(index: $0, id: EdgePart.anchor(scope, row: $0)) }) { anchored in
+                row(anchored.index)
+            }
+            .onMove(perform: editing?.move)
+            .onDelete(perform: editing?.delete)
+        } else {
+            ForEach(1..<(count + 1), id: \.self) { index in
+                row(index)
+            }
+            .onMove(perform: editing?.move)
+            .onDelete(perform: editing?.delete)
         }
-        .onMove(perform: editing?.move)
-        .onDelete(perform: editing?.delete)
+    }
+
+    private struct EdgeRow: Identifiable {
+        let index: Int
+        let id: String
+    }
+
+    private func row(_ index: Int) -> some View {
+        PartView(function: function, key: .number(Double(index)), scope: scope.child("row:\(index)"))
+            .tag(LuauValue.number(Double(index)))
     }
 
     private func send(_ message: LuauValue) {

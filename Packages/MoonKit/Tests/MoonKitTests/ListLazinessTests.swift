@@ -15,13 +15,14 @@ import MoonKit
 struct ListLazinessTests {
     /// 10,000 lazy rows, some with a badge, a context menu or swipe
     /// actions, and a `drawn` function that counts the rows drawn so far.
-    private func app(count: Int) throws -> Sandbox {
+    private func app(count: Int, edge: Bool = false) throws -> Sandbox {
         try Sandbox(["main.luau": """
         local drawn = 0
         return mod {
             init = function() return {} end,
             view = function()
                 return ui.list {
+                    edge = \(edge),
                     count = \(count),
                     row = function(i)
                         drawn += 1
@@ -42,8 +43,9 @@ struct ListLazinessTests {
         """])
     }
 
-    @Test func aListDrawsOnlyTheRowsItShows() async throws {
-        let app = try app(count: 10_000)
+    @Test(arguments: [false, true])
+    func aListDrawsOnlyTheRowsItShows(edge: Bool) async throws {
+        let app = try app(count: 10_000, edge: edge)
         let workspace = app.workspace()
         workspace.reload()
         #expect(workspace.problems.isEmpty)
@@ -51,6 +53,8 @@ struct ListLazinessTests {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.titled], backing: .buffered, defer: false
         )
+        // Made in code, a window is released as it closes: Swift owns it here.
+        window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: MoonCanvas().environment(workspace))
         window.orderFrontRegardless()
         defer { window.close() }
