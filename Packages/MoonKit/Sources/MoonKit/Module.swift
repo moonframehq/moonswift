@@ -266,6 +266,25 @@ final class Module {
         }
     }
 
+    /// Each component's `styles`, run in one VM; one that fails to load
+    /// is left out, as `use` reports it where it is used.
+    static func styles(
+        of components: [Component], limits: Limits, log: @escaping (String) -> Void
+    ) -> [(String, LuauValue)] {
+        guard !components.isEmpty, let (vm, _) = try? sealedVM(chunk: "components", components: [], limits: limits, log: log)
+        else { return [] }
+        let sorted = components.sorted { $0.name < $1.name }
+        return sorted.compactMap { component in
+            try? vm.balanced { () throws(LuauError) -> (String, LuauValue)? in
+                try vm.load(component.source, name: component.file)
+                try vm.call(results: 1)
+                guard vm.topIsTable else { return nil }
+                vm.pushRawField("styles")
+                return try vm.read().map { (component.name, $0) }
+            } ?? nil
+        }
+    }
+
     private static func sealedVM(
         chunk: String, components: [Component], limits: Limits, log: @escaping (String) -> Void
     ) throws(LuauError) -> (LuauVM, lens: Int32) {

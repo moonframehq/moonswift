@@ -122,16 +122,31 @@ local function send(to: string)
 end
 
 -- A component's `build`; a file that returns anything else is used as it is.
+-- One that is missing, or keeps state of its own (Moonframe's instances,
+-- not here yet), draws as a placeholder the host warns about, so a desktop
+-- mod still loads on a phone.
+local missing = element("missing", "name")
+local instance = element("instance", "component")
 local used = {}
 local function use(name: string)
 	if used[name] == nil then
 		local chunk = component_chunks[name]
+		local value
 		if chunk == nil then
-			error(`no component named {name}`, 2)
+			value = function()
+				return missing(name)
+			end
+		else
+			value = chunk()
 		end
-		local value = chunk()
-		if type(value) == "table" and type(value.build) == "function" and value.update == nil then
-			value = value.build
+		if type(value) == "table" and type(value.build) == "function" then
+			if value.update == nil then
+				value = value.build
+			else
+				value = function(props: any)
+					return instance { name, id = type(props) == "table" and props.id or "main" }
+				end
+			end
 		end
 		used[name] = value
 	end

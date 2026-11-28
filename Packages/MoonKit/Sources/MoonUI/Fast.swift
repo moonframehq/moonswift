@@ -48,7 +48,7 @@ extension NodeView {
     /// Padding, growth and color, only those set.
     private func boxed(_ stack: some View, _ look: Look) -> AnyView {
         let padded = look.uses.contains(.padding), stretched = look.uses.contains(.stretch)
-        let maxWidth: CGFloat? = look.wide ? .infinity : nil, maxHeight: CGFloat? = look.tall ? .infinity : nil
+        let maxWidth = look.maxWidth, maxHeight = look.maxHeight
         switch (padded, stretched, look.color) {
         case (false, false, nil):
             return AnyView(stack)

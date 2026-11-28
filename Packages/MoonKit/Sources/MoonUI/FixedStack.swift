@@ -252,7 +252,9 @@ enum Fixed {
     static func fits(_ node: Node) -> Bool {
         let children = node.children
         // `justify` shares the space out with spacers of its own.
-        guard (1...5).contains(children.count), node.lazyRows == nil, node.props["justify"] == nil else { return false }
+        // A flow wraps, and a floated child sits over the stack, not in it.
+        guard (1...5).contains(children.count), node.lazyRows == nil, node.props["justify"] == nil,
+              node.props["wrap"] != .bool(true), !node.hasFloats else { return false }
         return children.allSatisfy { $0.props["key"] == nil && $0.props["id"] == nil && isStateless($0) }
     }
 

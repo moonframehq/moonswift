@@ -10,16 +10,21 @@ extension NodeView {
         let font = font(style)
         switch node.kind {
         case .row:
-            if Fixed.fits(node) {
-                return AnyView(FixedRow(alignment: node.verticalAlignment, spacing: node.spacing, children: node.children, scope: scope))
+            let gap = style.gap.map { CGFloat($0) } ?? node.spacing
+            if node.flag("wrap") {
+                return AnyView(FlowLayout(spacing: gap) { Children(node: node, scope: scope) })
             }
-            return AnyView(HStack(alignment: node.verticalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) })
-        case .column:
             if Fixed.fits(node) {
-                let column = FixedColumn(alignment: node.horizontalAlignment, spacing: node.spacing, children: node.children, scope: scope)
+                return AnyView(FixedRow(alignment: node.verticalAlignment, spacing: gap, children: node.children, scope: scope))
+            }
+            return AnyView(HStack(alignment: node.verticalAlignment, spacing: gap) { Children(node: node, scope: scope) })
+        case .column:
+            let gap = style.gap.map { CGFloat($0) } ?? node.spacing
+            if Fixed.fits(node) {
+                let column = FixedColumn(alignment: node.horizontalAlignment, spacing: gap, children: node.children, scope: scope)
                 return scrolling(column)
             }
-            return scrolling(VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) })
+            return scrolling(VStack(alignment: node.horizontalAlignment, spacing: gap) { Children(node: node, scope: scope) })
         case .panel:
             return scrolling(VStack(alignment: .leading, spacing: node.spacing) {
                 if let title = node.string("title") { panelTitle(title) }
@@ -58,7 +63,17 @@ extension NodeView {
         case .label:
             return AnyView(LabelNode(node: node, scope: scope).font(font))
         case .badge:
-            return AnyView(Text(verbatim: node.string("text") ?? "").font(font))
+            // A pill, as Moonframe's theme draws one, unless a rule says how.
+            let text = Text(verbatim: node.string("text") ?? "")
+            if style.background == nil {
+                return AnyView(
+                    text.font(font ?? .caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.tint.opacity(0.15)))
+                )
+            }
+            return AnyView(text.font(font))
         case .icon:
             return AnyView(IconNode(node: node).font(font))
         case .image:
@@ -91,7 +106,11 @@ extension NodeView {
             return AnyView(OverlayNode(node: node, scope: scope, send: send))
         case .browser:
             return AnyView(BrowserNode(node: node))
-        case .map, .video, .line, .paths, .hatch, .revisionTimeline:
+        case .line:
+            return AnyView(LineNode(node: node))
+        case .hatch:
+            return AnyView(HatchNode(node: node))
+        case .map, .video, .paths, .revisionTimeline, .missing, .instance:
             return AnyView(PlaceholderNode(node: node))
         case .invalid:
             return AnyView(WarningMark(text: node.problem ?? "bad element"))
@@ -118,7 +137,9 @@ extension NodeView {
 
     private func scrolling(_ stack: some View) -> AnyView {
         if node.flag("scroll") {
-            return AnyView(ScrollView { stack.frame(maxWidth: .infinity, alignment: .leading) })
+            // Held to the scroll view's width: a desktop row wider than a
+            // phone runs off the right, not the page off both sides.
+            return AnyView(ScrollView { Clamped { stack } })
         }
         return AnyView(stack)
     }

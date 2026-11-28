@@ -20,6 +20,7 @@ struct Look {
         static let rotate = Uses(rawValue: 1 << 7)
         static let fixed = Uses(rawValue: 1 << 8)
         static let margin = Uses(rawValue: 1 << 9)
+        static let floats = Uses(rawValue: 1 << 10)
     }
 
     var uses: Uses = []
@@ -38,6 +39,12 @@ struct Look {
     var height: CGFloat?
     var wide = false
     var tall = false
+    /// The stretch frame's limits: infinite to grow, a `max_width` or
+    /// `max_height` to cap, nil to keep its own size.
+    var maxWidth: CGFloat?
+    var maxHeight: CGFloat?
+    /// Its children with `float`, drawn over its box (`Floats`).
+    var floats: AnyView?
     var alignment = Alignment.topLeading
     var shadow: CGFloat = 0
     var opacity: Double = 1
@@ -62,9 +69,13 @@ struct Look {
         margin = EdgeInsets(style.margin)
         width = node.number("width").map { CGFloat($0) }
         height = node.number("height").map { CGFloat($0) }
-        wide = node.growsWide || node.kind == .panel
+        let selfAlign = Self.selfAlign(of: node)
+        wide = node.growsWide || node.kind == .panel || selfAlign != nil
         tall = node.growsTall
-        alignment = Self.alignment(of: node)
+        let capWidth = node.number("max_width").map { CGFloat($0) }, capHeight = node.number("max_height").map { CGFloat($0) }
+        maxWidth = wide ? capWidth ?? .infinity : capWidth
+        maxHeight = tall ? capHeight ?? .infinity : capHeight
+        alignment = selfAlign ?? Self.alignment(of: node)
         shadow = style.shadow ?? 0
         opacity = style.opacity ?? 1
         rotate = node.number("rotate") ?? 0
@@ -72,7 +83,11 @@ struct Look {
         case .string("y")?: fixed = (false, true)
         case .string("x")?: fixed = (true, false)
         case .bool(true)?: fixed = (true, true)
-        default: break
+        default:
+            // Moonframe's `shrink = false`: its own size along its parent's axis.
+            if node.props["shrink"] == .bool(false) {
+                fixed = (node.axis != .vertical, node.axis != .horizontal)
+            }
         }
 
         let selectors = Stylesheet.selectors(of: node)
@@ -86,8 +101,17 @@ struct Look {
         }
         if states.contains(where: { $0.padding != nil }) { uses.insert(.padding) }
         if width != nil || height != nil { uses.insert(.size) }
-        if wide || tall { uses.insert(.stretch) }
+        if maxWidth != nil || maxHeight != nil { uses.insert(.stretch) }
         if states.contains(where: { $0.background != nil || ($0.edges != nil && $0.edges != "none") }) { uses.insert(.fill) }
+        // A Moonframe column stretches its containers across its width.
+        // Only one that draws a box, or places its content in it, shows
+        // the difference; the rest keep their own width, as a frame on
+        // every row of a list costs SwiftUI a layout pass each.
+        if !wide, Self.stretched(node), uses.contains(.fill) || node.props["justify"] != nil {
+            wide = true
+            maxWidth = capWidth ?? .infinity
+            uses.insert(.stretch)
+        }
         if states.contains(where: { $0.glass == true }) { uses.insert(.glass) }
         if states.contains(where: { $0.shadow != nil }) { uses.insert(.shadow) }
         if states.contains(where: { $0.opacity != nil }) { uses.insert(.opacity) }
@@ -97,14 +121,32 @@ struct Look {
     }
 
     /// Where the content sits in a box bigger than it: by the column's or
-    /// row's `align`, from the top leading corner otherwise.
+    /// row's `align` and `justify`, from the top leading corner otherwise.
     private static func alignment(of node: Node) -> Alignment {
+        let justify = node.string("justify")
         switch node.kind {
-        case .column: Alignment(horizontal: node.horizontalAlignment, vertical: .top)
-        case .row: Alignment(horizontal: .leading, vertical: node.verticalAlignment)
-        default: .topLeading
+        case .column:
+            return Alignment(horizontal: node.horizontalAlignment, vertical: justify == "end" ? .bottom : justify == "center" ? .center : .top)
+        case .row:
+            return Alignment(horizontal: justify == "end" ? .trailing : justify == "center" ? .center : .leading, vertical: node.verticalAlignment)
+        default: return .topLeading
         }
     }
+
+    /// Moonframe's `self_align` in a column: where it sits across the
+    /// width, in a box as wide as the column.
+    private static func selfAlign(of node: Node) -> Alignment? {
+        guard node.axis == .vertical, let align = node.string("self_align"), align != "stretch" else { return nil }
+        return align == "end" ? .trailing : align == "center" ? .center : .leading
+    }
+
+    /// Whether a Moonframe column stretches it across its width: its
+    /// containers do, unless they `hug`; a text or a button keeps its own.
+    private static func stretched(_ node: Node) -> Bool {
+        node.across && stretchable.contains(node.kind) && !node.flag("hug") && node.props["self_align"] == nil
+    }
+
+    private static let stretchable: Set<Node.Kind> = [.row, .column, .panel, .pane, .item, .input, .markdown, .list]
 }
 
 /// Fonts by what makes them, so equal styles share one font: SwiftUI then
@@ -172,12 +214,22 @@ struct Box: ViewModifier {
             .modifier(Pad(on: uses.contains(.padding), insets: look.padding))
             .modifier(Size(on: uses.contains(.size), width: look.width, height: look.height, alignment: look.alignment))
             .modifier(Stretch(
-                on: uses.contains(.stretch), wide: look.wide, tall: look.tall, alignment: look.alignment
+                on: uses.contains(.stretch), maxWidth: look.maxWidth, maxHeight: look.maxHeight, alignment: look.alignment
             ))
             .modifier(Ink(color: look.color))
             .modifier(Fill(on: uses.contains(.fill), look: look))
             .modifier(Effects(look: look))
+            .modifier(Floating(view: uses.contains(.floats) ? look.floats : nil))
             .modifier(Pad(on: uses.contains(.margin), insets: look.margin))
+    }
+}
+
+/// Children with `float`, over the box rather than in it.
+private struct Floating: ViewModifier {
+    let view: AnyView?
+
+    func body(content: Content) -> some View {
+        if let view { content.overlay { view } } else { content }
     }
 }
 
@@ -203,13 +255,13 @@ private struct Size: ViewModifier {
 
 private struct Stretch: ViewModifier {
     let on: Bool
-    let wide: Bool
-    let tall: Bool
+    let maxWidth: CGFloat?
+    let maxHeight: CGFloat?
     let alignment: Alignment
 
     func body(content: Content) -> some View {
         if on {
-            content.frame(maxWidth: wide ? .infinity : nil, maxHeight: tall ? .infinity : nil, alignment: alignment)
+            content.frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: alignment)
         } else {
             content
         }

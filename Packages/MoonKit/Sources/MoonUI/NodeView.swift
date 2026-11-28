@@ -189,7 +189,7 @@ struct NodeView: View, Equatable {
                 .modifier(Decorations(node: node, scope: scope, send: send))
                 .modifier(Tracked(tracker: tracker, scope: scope, label: node.label))
         default:
-            let look = Look(node: node, sheet: sheet, dark: dark, hovered: hover?.wrappedValue ?? false)
+            let look = looked()
             if look.hovers, hover == nil {
                 Hovering(node: node, scope: scope)
             } else if isFlat(look) {
@@ -204,6 +204,16 @@ struct NodeView: View, Equatable {
                 styled(look)
             }
         }
+    }
+
+    /// Its look, with the children it floats over itself, if any.
+    private func looked() -> Look {
+        var look = Look(node: node, sheet: sheet, dark: dark, hovered: hover?.wrappedValue ?? false)
+        if node.hasFloats {
+            look.floats = AnyView(Floats(node: node, scope: scope))
+            look.uses.insert(.floats)
+        }
+        return look
     }
 
     private var regionMods: some View {
@@ -226,7 +236,7 @@ struct NodeView: View, Equatable {
     private func flat(_ look: Look) -> some View {
         let padded = look.uses.contains(.padding), stretched = look.uses.contains(.stretch)
         let content = content(look.style)
-        let maxWidth: CGFloat? = look.wide ? .infinity : nil, maxHeight: CGFloat? = look.tall ? .infinity : nil
+        let maxWidth = look.maxWidth, maxHeight = look.maxHeight
         if padded, stretched {
             inked(look, content.padding(look.padding).frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: look.alignment))
         } else if padded {
@@ -297,11 +307,12 @@ struct Children: View {
             .onMove(perform: RowEditing(node: node, keys: keys, send: send).move)
             .onDelete(perform: RowEditing(node: node, keys: keys, send: send).delete)
         } else {
-            // Moonframe's `justify`, as spacers the stack shares out.
+            // Moonframe's `between`, as spacers the stack shares out; `center`
+            // and `end` place the stack in its box instead (`Box`).
             let justify = node.kind == .row || node.kind == .column ? node.string("justify") : nil
             let children = Identified.of(node.children)
-            if justify == "center" || justify == "end" { Spacer(minLength: 0) }
-            ForEach(children) { child in
+            // A floated child is drawn over the stack instead (`Floats`).
+            ForEach(children.filter { $0.node.props["float"] == nil }) { child in
                 if justify == "between", child.id != children.first?.id { Spacer(minLength: 0) }
                 // A stack sees a spacer only bare, not inside another view.
                 if child.node.kind == .spacer {
@@ -310,7 +321,6 @@ struct Children: View {
                     NodeView.one(child.node, scope.child(child.id))
                 }
             }
-            if justify == "center" { Spacer(minLength: 0) }
         }
         if let rows = node.lazyRows {
             LazyRows(count: rows.count, function: rows.function, scope: scope, owner: node)

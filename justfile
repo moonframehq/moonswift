@@ -113,3 +113,8 @@ vendor-luau:
 # Copy the conformance suite from a Moonframe checkout, the reference copy.
 conformance-sync moonframe="~/code/moonframe":
     rsync -a --delete {{moonframe}}/conformance/ conformance/
+
+# Copy Moonframe's components into MoonKit's library, which every app can
+# `use`; the gallery test then draws each one.
+components-sync moonframe="~/code/moonframe":
+    rsync -a --delete --include='*.luau' --exclude='*' {{moonframe}}/app/components/ Packages/MoonKit/Sources/MoonKit/Library/components/

@@ -36,7 +36,9 @@ let package = Package(
             ]
         ),
         // The headless runtime: VMs, mods, reloads, trees and styles.
-        .target(name: "MoonKit", dependencies: ["CLuau"], swiftSettings: isolated),
+        // Library/ is Moonframe's components, which every app can `use`:
+        // `just components-sync` copies them from a Moonframe checkout.
+        .target(name: "MoonKit", dependencies: ["CLuau"], resources: [.copy("Library")], swiftSettings: isolated),
         // Draws trees with SwiftUI. All an App Store build gets.
         .target(name: "MoonUI", dependencies: ["MoonKit"], swiftSettings: isolated),
         // Everything that changes the app while it runs: the sparkle, the

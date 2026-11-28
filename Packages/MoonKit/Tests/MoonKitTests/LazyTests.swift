@@ -139,7 +139,8 @@ struct LazyTests {
     }
 
     @Test func everyNewElementIsKnown() throws {
-        let kinds = Node.Kind.allCases.filter { $0 != .invalid }.map(\.rawValue)
+        // `use` makes the last two, for components it can't draw.
+        let kinds = Node.Kind.allCases.filter { ![.invalid, .missing, .instance].contains($0) }.map(\.rawValue)
         let body = kinds.map { "ui.\($0) {}" }.joined(separator: ",\n")
         let app = try Sandbox(["main.luau": "return mod { view = function() return ui.column {\n\(body)\n} end }"])
         let workspace = app.workspace()

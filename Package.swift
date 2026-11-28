@@ -41,7 +41,11 @@ let package = Package(
                 .unsafeFlags(["-w"]),
             ]
         ),
-        .target(name: "MoonKit", dependencies: ["CLuau"], path: "\(sources)/MoonKit", swiftSettings: isolated),
+        // Library/ is Moonframe's components, which every app can `use`.
+        .target(
+            name: "MoonKit", dependencies: ["CLuau"], path: "\(sources)/MoonKit", resources: [.copy("Library")],
+            swiftSettings: isolated
+        ),
         .target(name: "MoonUI", dependencies: ["MoonKit"], path: "\(sources)/MoonUI", swiftSettings: isolated),
         .target(name: "MoonLive", dependencies: ["MoonKit", "MoonUI"], path: "\(sources)/MoonLive", swiftSettings: isolated),
     ],

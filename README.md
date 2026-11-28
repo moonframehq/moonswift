@@ -96,7 +96,10 @@ loads on both. `plans/moonframe-compat.md` says what is shared, how each host's
 own elements degrade on the other, and `app.renderer` and
 `app.window.platform` let a layout pick. Moonframe's elements here: `item`,
 `hsplit`, `vsplit`, `pane`, `popover`, `overlay`, `view`, `terminal`,
-`browser`, and placeholders for the rest. MoonSwift's own follow.
+`browser`, and placeholders for the rest. MoonSwift's own follow. Moonframe's
+components ship with MoonKit, so `use "stat-tile"` works in any app;
+`just example components` shows a dozen on a phone. Whatever a desktop mod
+uses that MoonSwift lacks draws as a placeholder and logs a warning.
 
 Layout: `ui.row`, `column`, `panel`, `scroll`, `grid`, `fits`, `spacer`, `divider`.
 Navigation and lists: `stack`, `link`, `tabs`, `tab`, `split`, `list`, `section`,
