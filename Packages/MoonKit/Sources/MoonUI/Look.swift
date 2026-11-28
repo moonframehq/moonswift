@@ -70,7 +70,7 @@ struct Look {
         width = node.number("width").map { CGFloat($0) }
         height = node.number("height").map { CGFloat($0) }
         let selfAlign = Self.selfAlign(of: node)
-        wide = node.growsWide || node.kind == .panel || Self.stretched(node) || selfAlign != nil
+        wide = node.growsWide || node.kind == .panel || selfAlign != nil
         tall = node.growsTall
         let capWidth = node.number("max_width").map { CGFloat($0) }, capHeight = node.number("max_height").map { CGFloat($0) }
         maxWidth = wide ? capWidth ?? .infinity : capWidth
@@ -103,6 +103,15 @@ struct Look {
         if width != nil || height != nil { uses.insert(.size) }
         if maxWidth != nil || maxHeight != nil { uses.insert(.stretch) }
         if states.contains(where: { $0.background != nil || ($0.edges != nil && $0.edges != "none") }) { uses.insert(.fill) }
+        // A Moonframe column stretches its containers across its width.
+        // Only one that draws a box, or places its content in it, shows
+        // the difference; the rest keep their own width, as a frame on
+        // every row of a list costs SwiftUI a layout pass each.
+        if !wide, Self.stretched(node), uses.contains(.fill) || node.props["justify"] != nil {
+            wide = true
+            maxWidth = capWidth ?? .infinity
+            uses.insert(.stretch)
+        }
         if states.contains(where: { $0.glass == true }) { uses.insert(.glass) }
         if states.contains(where: { $0.shadow != nil }) { uses.insert(.shadow) }
         if states.contains(where: { $0.opacity != nil }) { uses.insert(.opacity) }
