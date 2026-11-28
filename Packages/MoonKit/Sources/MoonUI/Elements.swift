@@ -1,88 +1,102 @@
 import MoonKit
 import SwiftUI
 
-/// What each element draws inside its box.
+/// What each element draws inside its box: one erased view per kind. As a
+/// `@ViewBuilder` switch, the first element drawn would make SwiftUI set up
+/// the types of every kind, controls and markdown too, before the first
+/// frame; erased, it sets up only the kinds a screen shows.
 extension NodeView {
-    @ViewBuilder
-    func content(_ style: StyleRule) -> some View {
+    func content(_ style: StyleRule) -> AnyView {
+        let font = font(style)
         switch node.kind {
         case .row:
-            HStack(alignment: node.verticalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+            if Fixed.fits(node) {
+                return AnyView(FixedRow(alignment: node.verticalAlignment, spacing: node.spacing, children: node.children, scope: scope))
+            }
+            return AnyView(HStack(alignment: node.verticalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) })
         case .column:
-            scrolling {
-                VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) }
+            if Fixed.fits(node) {
+                let column = FixedColumn(alignment: node.horizontalAlignment, spacing: node.spacing, children: node.children, scope: scope)
+                return scrolling(column)
             }
+            return scrolling(VStack(alignment: node.horizontalAlignment, spacing: node.spacing) { Children(node: node, scope: scope) })
         case .panel:
-            scrolling {
-                VStack(alignment: .leading, spacing: node.spacing) {
-                    if let title = node.string("title") { panelTitle(title) }
-                    Children(node: node, scope: scope)
-                }
-            }
+            return scrolling(VStack(alignment: .leading, spacing: node.spacing) {
+                if let title = node.string("title") { panelTitle(title) }
+                Children(node: node, scope: scope)
+            })
         case .scroll:
-            ScrollNode(node: node, scope: scope)
+            return AnyView(ScrollNode(node: node, scope: scope))
         case .grid:
-            GridNode(node: node, scope: scope)
+            return AnyView(GridNode(node: node, scope: scope))
         case .fits:
-            ViewThatFits { Children(node: node, scope: scope) }
+            return AnyView(ViewThatFits { Children(node: node, scope: scope) })
         case .labeled:
-            LabeledNode(node: node, scope: scope)
+            return AnyView(LabeledNode(node: node, scope: scope))
         case .share:
-            ShareNode(node: node, identifier: identifier)
+            return AnyView(ShareNode(node: node, identifier: identifier))
         case .edit:
             #if os(iOS)
-            EditButton().accessibilityIdentifier(identifier)
+            return AnyView(EditButton().accessibilityIdentifier(identifier))
             #else
-            EmptyView()
+            return AnyView(EmptyView())
             #endif
         case .divider:
-            Divider()
+            return AnyView(Divider())
         case .text:
-            TextNode(node: node, identifier: identifier).font(font(style))
+            // A plain string, the most common element, without a view of its own.
+            if TextNode.isPlain(node) {
+                return AnyView(
+                    TextNode.plain(node).digits(node.flag("digits")).font(font)
+                        .lineLimit(TextNode.lines(node))
+                        .accessibilityIdentifier(identifier)
+                )
+            }
+            return AnyView(TextNode(node: node, identifier: identifier).font(font))
         case .markdown:
-            MarkdownNode(node: node).font(font(style))
+            return AnyView(MarkdownNode(node: node).font(font))
         case .label:
-            LabelNode(node: node, scope: scope).font(font(style))
+            return AnyView(LabelNode(node: node, scope: scope).font(font))
         case .badge:
-            Text(verbatim: node.string("text") ?? "").font(font(style))
+            return AnyView(Text(verbatim: node.string("text") ?? "").font(font))
         case .icon:
-            IconNode(node: node).font(font(style))
+            return AnyView(IconNode(node: node).font(font))
         case .image:
-            ImageNode(node: node)
+            return AnyView(ImageNode(node: node))
         case .progress:
-            ProgressNode(node: node)
+            return AnyView(ProgressNode(node: node))
         case .unavailable:
-            UnavailableNode(node: node, scope: scope)
+            return AnyView(UnavailableNode(node: node, scope: scope))
         case .link:
-            LinkNode(node: node, scope: scope, identifier: identifier, send: send)
+            return AnyView(LinkNode(node: node, scope: scope, identifier: identifier, send: send))
         case .disclosure:
-            DisclosureNode(node: node, scope: scope, send: send)
+            return AnyView(DisclosureNode(node: node, scope: scope, send: send))
         case .button:
-            ButtonNode(node: node, identifier: identifier, send: send)
+            return AnyView(ButtonNode(node: node, identifier: identifier, send: send))
         case .input, .secure, .editor, .toggle, .slider, .stepper, .picker:
-            ControlNode(node: node, identifier: identifier, send: send)
+            return AnyView(ControlNode(node: node, identifier: identifier, send: send))
         case .menu:
-            MenuNode(node: node, scope: scope, identifier: identifier, send: send).font(font(style))
+            return AnyView(MenuNode(node: node, scope: scope, identifier: identifier, send: send).font(font))
         case .native, .view:
-            NativeNode(node: node, send: send)
+            return AnyView(NativeNode(node: node, send: send))
         case .terminal:
-            NativeNode(node: node, send: send, name: "terminal")
+            return AnyView(NativeNode(node: node, send: send, name: "terminal"))
         case .item:
-            ItemNode(node: node).font(font(style))
+            return AnyView(ItemNode(node: node).font(font))
         case .pane:
-            VStack(alignment: .leading, spacing: node.spacing) { Children(node: node, scope: scope) }
+            return AnyView(VStack(alignment: .leading, spacing: node.spacing) { Children(node: node, scope: scope) })
         case .popover:
-            PopoverNode(node: node, scope: scope, send: send)
+            return AnyView(PopoverNode(node: node, scope: scope, send: send))
         case .overlay:
-            OverlayNode(node: node, scope: scope, send: send)
+            return AnyView(OverlayNode(node: node, scope: scope, send: send))
         case .browser:
-            BrowserNode(node: node)
+            return AnyView(BrowserNode(node: node))
         case .map, .video, .line, .paths, .hatch, .revisionTimeline:
-            PlaceholderNode(node: node)
+            return AnyView(PlaceholderNode(node: node))
         case .invalid:
-            WarningMark(text: node.problem ?? "bad element")
+            return AnyView(WarningMark(text: node.problem ?? "bad element"))
         case .region, .mount, .spacer, .stack, .tabs, .tab, .split, .list, .form, .section, .hsplit, .vsplit:
-            EmptyView()
+            return AnyView(EmptyView())
         }
     }
 
@@ -102,13 +116,11 @@ extension NodeView {
         }
     }
 
-    @ViewBuilder
-    private func scrolling(@ViewBuilder _ stack: () -> some View) -> some View {
+    private func scrolling(_ stack: some View) -> AnyView {
         if node.flag("scroll") {
-            ScrollView { stack().frame(maxWidth: .infinity, alignment: .leading) }
-        } else {
-            stack()
+            return AnyView(ScrollView { stack.frame(maxWidth: .infinity, alignment: .leading) })
         }
+        return AnyView(stack)
     }
 
     private func panelTitle(_ title: String) -> some View {
@@ -125,21 +137,41 @@ struct TextNode: View {
     let node: Node
     let identifier: String
 
+    /// A string and nothing else, which `NodeView` draws itself.
+    static func isPlain(_ node: Node) -> Bool {
+        node.props["date"] == nil && !node.flag("numeric") && !node.flag("selectable") && !node.flag("markdown")
+            && node.props["align"] == nil
+    }
+
+    /// `lines`, or one line for `truncate`.
+    static func lines(_ node: Node) -> Int? {
+        node.integer("lines", in: 1...10_000) ?? (node.flag("truncate") ? 1 : nil)
+    }
+
+    static func plain(_ node: Node) -> Text {
+        Text(verbatim: node.string("text") ?? "")
+    }
+
     var body: some View {
         text
-            .lineLimit(node.integer("lines", in: 1...10_000) ?? (node.flag("truncate") ? 1 : nil))
-            .multilineTextAlignment(alignment)
-            .contentTransition(node.flag("numeric") ? .numericText() : .identity)
+            .lineLimit(Self.lines(node))
+            .modifier(Aligned(alignment: alignment))
+            .modifier(Numeric(on: node.flag("numeric")))
             .modifier(Selectable(on: node.flag("selectable")))
-            .modifier(SafeLinks())
+            .modifier(Linked(on: node.flag("markdown")))
             .accessibilityIdentifier(identifier)
     }
 
+    @ViewBuilder
     private var text: some View {
-        let text = node.flag("digits") ? plain.monospacedDigit() : plain
+        let text = plain.digits(node.flag("digits"))
         // A date the system keeps current takes all the width it's offered;
         // held to its own, it sits where a spacer puts it.
-        return text.fixedSize(horizontal: node.number("date") != nil, vertical: false)
+        if node.number("date") != nil {
+            text.fixedSize(horizontal: true, vertical: false)
+        } else {
+            text
+        }
     }
 
     private var plain: Text {
@@ -173,11 +205,42 @@ struct TextNode: View {
     }
 }
 
+extension Text {
+    func digits(_ on: Bool) -> Text {
+        on ? monospacedDigit() : self
+    }
+}
+
 private struct Selectable: ViewModifier {
     let on: Bool
 
     func body(content: Content) -> some View {
         if on { content.textSelection(.enabled) } else { content }
+    }
+}
+
+private struct Aligned: ViewModifier {
+    let alignment: TextAlignment
+
+    func body(content: Content) -> some View {
+        if alignment == .leading { content } else { content.multilineTextAlignment(alignment) }
+    }
+}
+
+private struct Numeric: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.contentTransition(.numericText()) } else { content }
+    }
+}
+
+/// Only markdown has links to keep safe.
+private struct Linked: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on { content.modifier(SafeLinks()) } else { content }
     }
 }
 
@@ -292,19 +355,31 @@ struct IconNode: View {
     let node: Node
     var key = "name"
 
+    /// A known symbol and nothing else, which `NodeView` draws itself.
+    static func isPlain(_ node: Node) -> Bool {
+        node.props["rendering"] == nil && !node.flag("fill") && node.props["effect"] == nil && !node.flag("spin")
+            && node.props["tint"] == nil && node.string("name").flatMap(Icons.symbol) != nil
+    }
+
+    static func image(_ node: Node) -> Image {
+        Image(systemName: node.string("name").flatMap(Icons.symbol) ?? "questionmark")
+    }
+
     @Environment(Workspace.self) private var workspace
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if let symbol = node.string(key).flatMap(Icons.symbol) {
             let image = Image(systemName: symbol)
-                .symbolRenderingMode(rendering)
-                .symbolVariant(node.flag("fill") ? .fill : .none)
-                .modifier(SymbolEffect(name: key == "name" ? (node.flag("spin") ? "rotate" : node.string("effect")) : nil))
-            if let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark) {
-                image.foregroundStyle(tint)
+            let tint = workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark)
+            if rendering == nil, !node.flag("fill"), node.props["effect"] == nil, !node.flag("spin"), tint == nil {
+                image
             } else {
                 image
+                    .symbolRenderingMode(rendering)
+                    .symbolVariant(node.flag("fill") ? .fill : .none)
+                    .modifier(SymbolEffect(name: key == "name" ? (node.flag("spin") ? "rotate" : node.string("effect")) : nil))
+                    .modifier(Ink(color: tint))
             }
         } else {
             WarningMark(text: "no icon named \(node.string(key) ?? "")")

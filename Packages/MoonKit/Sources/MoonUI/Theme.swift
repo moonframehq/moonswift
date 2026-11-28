@@ -6,12 +6,11 @@ extension Stylesheet {
     /// opacity percentage, as `accent/15`.
     func paint(_ value: String?, dark: Bool) -> Color? {
         guard let value else { return nil }
-        let parts = value.split(separator: "/", maxSplits: 1).map(String.init)
-        guard let name = parts.first, let color = Color(hex: color(name, dark: dark)) ?? Color(system: name) else {
-            return nil
+        guard let slash = value.firstIndex(of: "/") else {
+            return Paints.color(color(value, dark: dark), name: value[...], percent: nil)
         }
-        guard parts.count == 2, let percent = Double(parts[1]) else { return color }
-        return color.opacity(percent / 100)
+        let name = value[..<slash]
+        return Paints.color(color(String(name), dark: dark), name: name, percent: value[value.index(after: slash)...])
     }
 }
 
