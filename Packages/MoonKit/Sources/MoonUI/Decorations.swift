@@ -10,26 +10,53 @@ struct Decorations: ViewModifier {
     let scope: Scope
     let send: (LuauValue) -> Void
 
-    static let keys: Set<String> = [
-        "title", "subtitle", "toolbar", "search", "refresh", "swipe", "context", "sheet", "cover",
-        "popover", "alert", "confirm", "badge", "tint", "appear", "disappear", "hidesBar", "titleMode", "overlay", "rowInsets", "rowBackground",
-        "separator", "hidesTabBar", "inset", "transition", "scrollTo", "index", "indexed", "scheme",
+    /// What each group reads. A row with a context menu pays for the
+    /// row's group alone, not for a screen's title, search and insets.
+    static let screenKeys: Set<String> = [
+        "title", "titleMode", "subtitle", "hidesBar", "hidesTabBar", "toolbar", "search", "refresh", "appear",
+        "disappear", "inset", "scrollTo", "index", "indexed",
     ]
+    static let rowKeys: Set<String> = ["context", "tint", "overlay", "transition", "scheme"]
+    static let presentedKeys: Set<String> = ["sheet", "cover", "popover", "alert", "confirm"]
 
-    func body(content: Content) -> some View {
-        if node.props.keys.contains(where: Self.keys.contains) {
-            content
-                .modifier(Screen(node: node, scope: scope, send: send))
-                .modifier(Row(node: node, scope: scope, send: send))
-                .modifier(Presented(node: node, scope: scope, send: send))
-        } else {
-            content
+    /// A context menu and no other decoration.
+    static func menuOnly(_ node: Node) -> Bool {
+        node.props["context"] != nil && !node.props.keys.contains {
+            $0 != "context" && (screenKeys.contains($0) || rowKeys.contains($0) || presentedKeys.contains($0))
         }
+    }
+
+    static func used(by node: Node) -> Bool {
+        node.props.keys.contains { screenKeys.contains($0) || rowKeys.contains($0) || presentedKeys.contains($0) }
+    }
+
+    func body(content: Content) -> AnyView {
+        let keys = node.props.keys
+        let screen = keys.contains(where: Self.screenKeys.contains)
+        let row = keys.contains(where: Self.rowKeys.contains)
+        let presented = keys.contains(where: Self.presentedKeys.contains)
+        // Erased each way, so a row's menu doesn't set up a screen's
+        // search, toolbar and sheets before the first frame.
+        if !screen, !row, !presented {
+            return AnyView(content)
+        } else if Self.menuOnly(node) {
+            // A row's menu alone, the common case, the short way.
+            return AnyView(content.contextMenu {
+                MenuItems(nodes: node.elements("context"), scope: scope.child("context"), send: send)
+            })
+        }
+        return AnyView(
+            content
+                .modifier(Screen(on: screen, node: node, scope: scope, send: send))
+                .modifier(Row(on: row, node: node, scope: scope, send: send))
+                .modifier(Presented(on: presented, node: node, scope: scope, send: send))
+        )
     }
 }
 
 /// `title`, `subtitle`, `toolbar`, `search` and `refresh`.
 private struct Screen: ViewModifier {
+    let on: Bool
     let node: Node
     let scope: Scope
     let send: (LuauValue) -> Void
@@ -37,15 +64,24 @@ private struct Screen: ViewModifier {
     @Environment(Workspace.self) private var workspace
 
     func body(content: Content) -> some View {
-        content
-            .modifier(Title(node: node))
-            .modifier(Toolbar(node: node, scope: scope, send: send))
-            .modifier(Search(node: node, send: send))
-            .modifier(Refresh(node: node, scope: scope, send: send, workspace: workspace))
-            .modifier(Lifecycle(node: node, send: send))
-            .modifier(Inset(node: node, scope: scope))
-            .modifier(ScrollTo(node: node))
-            .modifier(SectionIndex(node: node))
+        if on { screen(content) } else { content }
+    }
+
+    /// Only the modifiers the element sets, each erased: a list with a
+    /// title and search doesn't set up a toolbar's, an inset's or a
+    /// section index's types before its first frame.
+    private func screen(_ content: Content) -> AnyView {
+        let has = { (keys: [String]) in keys.contains { node.props[$0] != nil } }
+        var view = AnyView(content)
+        if has(["title", "titleMode", "subtitle", "hidesBar", "hidesTabBar"]) { view = AnyView(view.modifier(Title(node: node))) }
+        if has(["toolbar"]) { view = AnyView(view.modifier(Toolbar(node: node, scope: scope, send: send))) }
+        if has(["search"]) { view = AnyView(view.modifier(Search(node: node, send: send))) }
+        if has(["refresh"]) { view = AnyView(view.modifier(Refresh(node: node, scope: scope, send: send, workspace: workspace))) }
+        if has(["appear", "disappear"]) { view = AnyView(view.modifier(Lifecycle(node: node, send: send))) }
+        if has(["inset"]) { view = AnyView(view.modifier(Inset(node: node, scope: scope))) }
+        if has(["scrollTo"]) { view = AnyView(view.modifier(ScrollTo(node: node))) }
+        if has(["index", "indexed"]) { view = AnyView(view.modifier(SectionIndex(node: node))) }
+        return view
     }
 }
 
@@ -262,6 +298,7 @@ private struct Lifecycle: ViewModifier {
 
 /// `swipe`, `context`, `badge` and `tint`: what a row offers.
 private struct Row: ViewModifier {
+    let on: Bool
     let node: Node
     let scope: Scope
     let send: (LuauValue) -> Void
@@ -270,12 +307,22 @@ private struct Row: ViewModifier {
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        content
-            .modifier(ContextMenu(items: node.elements("context"), scope: scope, send: send))
-            .modifier(Tint(color: workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark)))
-            .modifier(Over(node: node, scope: scope))
-            .modifier(Transition(name: node.string("transition")))
-            .modifier(Scheme(name: node.string("scheme")))
+        if on { row(content) } else { content }
+    }
+
+    /// Only the modifiers the element sets, each erased.
+    private func row(_ content: Content) -> AnyView {
+        var view = AnyView(content)
+        if node.props["context"] != nil {
+            view = AnyView(view.modifier(ContextMenu(items: node.elements("context"), scope: scope, send: send)))
+        }
+        if node.props["tint"] != nil {
+            view = AnyView(view.modifier(Tint(color: workspace.stylesheet.paint(node.string("tint"), dark: scheme == .dark))))
+        }
+        if node.props["overlay"] != nil { view = AnyView(view.modifier(Over(node: node, scope: scope))) }
+        if node.props["transition"] != nil { view = AnyView(view.modifier(Transition(name: node.string("transition")))) }
+        if node.props["scheme"] != nil { view = AnyView(view.modifier(Scheme(name: node.string("scheme")))) }
+        return view
     }
 }
 
@@ -305,6 +352,14 @@ private struct Inset: ViewModifier {
         let insets = Self.insets(node)
         let top = insets.first { $0.string("edge") == "top" }
         let bottom = insets.first { $0.string("edge") != "top" }
+        if insets.isEmpty {
+            content
+        } else {
+            inset(content, top: top, bottom: bottom)
+        }
+    }
+
+    private func inset(_ content: Content, top: Overlay?, bottom: Overlay?) -> some View {
         content
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let bottom, let first = bottom.content.first {
@@ -433,8 +488,28 @@ struct Shortcut: ViewModifier {
     }
 }
 
+/// A row: its element as exactly one view, with its `badge` when it has
+/// one. A badge, even none, lays the row out beside it, a layout around
+/// every row measured on each that scrolls in, so only rows with one pay.
+/// It sits inside the one view, where the list doesn't look: a branch
+/// outside would make it draw every row to learn their traits.
+struct RowView: View {
+    let node: Node
+    let scope: Scope
+
+    var body: some View {
+        _UnaryViewAdaptor(badged)
+    }
+
+    @ViewBuilder
+    private var badged: some View {
+        let view = NodeView(node: node, scope: scope).equatable()
+        if let badge = RowTraits.badge(of: node) { view.badge(badge) } else { view }
+    }
+}
+
 /// What a list reads off a row itself, so it must sit on the row's outside:
-/// `swipe`, `badge` and the row's chrome (`rowInsets`, `rowBackground`,
+/// `swipe` and the row's chrome (`rowInsets`, `rowBackground`,
 /// `separator = false`). Lists apply it where they make each row.
 ///
 /// Every modifier here is always applied, unset ones with the system's
@@ -455,13 +530,12 @@ struct RowTraits: ViewModifier {
         content
             .swipeActions(edge: .trailing, allowsFullSwipe: !trailing.isEmpty) { buttons(trailing) }
             .swipeActions(edge: .leading, allowsFullSwipe: !leading.isEmpty) { buttons(leading) }
-            .badge(badge)
             .listRowInsets(node.props["rowInsets"].flatMap { Edges($0) }.map { EdgeInsets($0) })
             .listRowBackground(workspace.stylesheet.paint(node.string("rowBackground"), dark: scheme == .dark))
             .listRowSeparator(node.props["separator"]?.bool == false ? .hidden : .automatic)
     }
 
-    private var badge: Text? {
+    static func badge(of node: Node) -> Text? {
         if let count = node.number("badge") { return Text(verbatim: String(Int(count))) }
         return node.string("badge").map { Text(verbatim: $0) }
     }

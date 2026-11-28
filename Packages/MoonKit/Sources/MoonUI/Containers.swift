@@ -66,7 +66,7 @@ struct ListContent: View {
             if child.node.kind == .section {
                 SectionNode(node: child.node, scope: scope.child(child.id))
             } else {
-                NodeView(node: child.node, scope: scope.child(child.id)).equatable()
+                RowView(node: child.node, scope: scope.child(child.id))
                     .modifier(RowTraits(node: child.node, scope: scope.child(child.id)))
                     .tag(child.node.props["key"] ?? .string(child.id))
             }
